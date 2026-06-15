@@ -5,6 +5,7 @@ import { TopBar } from "./TopBar"
 
 const routeTitleMap: Record<string, string> = {
   "/patients": "患者列表",
+  "/overview": "患者概览",
   "/timeline": "患者时间线",
   "/consultation": "问诊室",
   "/records": "病历",

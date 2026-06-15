@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo, useEffect } from 'react'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Bell,
   Video,
@@ -14,6 +14,11 @@ import {
   ClipboardList,
   Pill,
   Calendar,
+  XCircle,
+  CheckCircle2,
+  CalendarClock,
+  Filter,
+  X,
 } from 'lucide-react'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useConsultationStore } from '@/stores/consultationStore'
@@ -24,8 +29,10 @@ import { formatRelativeTime, formatDateTime, formatDate } from '@/utils/date'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/ui/Avatar'
+import { Modal } from '@/components/ui/Modal'
+import { Input } from '@/components/ui/Input'
 import { cn } from '@/lib/utils'
-import type { Notification } from '@/types'
+import type { Notification, Referral, FollowupPlan } from '@/types'
 
 type TabKey = 'all' | 'system' | 'consultation' | 'referral' | 'fee' | 'rating'
 
@@ -76,8 +83,27 @@ const typeBadgeVariantMap: Record<Notification['type'], 'primary' | 'success' | 
 
 const ratingTags = ['态度好', '专业', '耐心', '响应及时', '建议有用']
 
+const referralStatusMap: Record<Referral['status'], { label: string; variant: 'primary' | 'success' | 'warning' | 'danger' | 'default' }> = {
+  pending: { label: '待处理', variant: 'warning' },
+  accepted: { label: '已接受', variant: 'primary' },
+  completed: { label: '已完成', variant: 'success' },
+  rejected: { label: '已拒绝', variant: 'danger' },
+}
+
+const planStatusMap: Record<FollowupPlan['status'], { label: string; variant: 'primary' | 'success' | 'warning' | 'danger' | 'default' }> = {
+  active: { label: '待复诊', variant: 'primary' },
+  completed: { label: '已完成', variant: 'success' },
+  paused: { label: '已暂停', variant: 'default' },
+  cancelled: { label: '已取消', variant: 'danger' },
+  delayed: { label: '已延期', variant: 'warning' },
+}
+
 export default function Messages() {
-  const { notifications, feeRecords, markAsRead, markAllAsRead, confirmFee, addRating } = useNotificationStore()
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const urlPatientId = searchParams.get('patientId')
+
+  const { notifications, feeRecords, markAsRead, markAllAsRead, confirmFee, addRating, addNotification } = useNotificationStore()
   const consultations = useConsultationStore((s) => s.consultations)
   const prescriptions = useConsultationStore((s) => s.prescriptions)
   const patients = usePatientStore((s) => s.patients)
@@ -86,21 +112,30 @@ export default function Messages() {
   const medications = useMedicationStore((s) => s.medications)
   const followupPlans = useFollowupStore((s) => s.plans)
   const referrals = usePatientStore((s) => s.referrals)
+  const updateReferral = usePatientStore((s) => s.updateReferral)
+  const updatePlan = useFollowupStore((s) => s.updatePlan)
 
   const [activeTab, setActiveTab] = useState<TabKey>('all')
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [ratingForm, setRatingForm] = useState({ rating: 0, tags: [] as string[], comment: '' })
   const [filterPatientId, setFilterPatientId] = useState<string>('')
+  const [showRejectModal, setShowRejectModal] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+  const [targetReferralId, setTargetReferralId] = useState<string | null>(null)
+  const [showPlanModal, setShowPlanModal] = useState(false)
+  const [planAction, setPlanAction] = useState<'complete' | 'delay' | 'cancel' | null>(null)
+  const [targetPlanId, setTargetPlanId] = useState<string | null>(null)
+  const [planForm, setPlanForm] = useState({ actualDate: '', nextDate: '', note: '' })
+
+  useEffect(() => {
+    if (urlPatientId) {
+      setFilterPatientId(urlPatientId)
+    }
+  }, [urlPatientId])
 
   const patientOptions = useMemo(() => {
-    const patientIds = new Set<string>()
-    notifications.forEach((n) => {
-      if (n.userId.startsWith('pat-')) patientIds.add(n.userId)
-    })
-    return patients
-      .filter((p) => patientIds.has(p.id))
-      .map((p) => ({ value: p.id, label: p.name }))
-  }, [notifications, patients])
+    return patients.map((p) => ({ value: p.id, label: p.name }))
+  }, [patients])
 
   const resolvePatientId = (notif: Notification): string | null => {
     if (notif.userId.startsWith('pat-')) return notif.userId
@@ -115,6 +150,27 @@ export default function Messages() {
     if (notif.type === 'fee' && notif.relatedId) {
       const fee = feeRecords.find((f) => f.id === notif.relatedId)
       if (fee) return fee.patientId
+    }
+    return null
+  }
+
+  const resolveReferralId = (notif: Notification): string | null => {
+    if (notif.type === 'referral' && notif.relatedId) {
+      return notif.relatedId
+    }
+    return null
+  }
+
+  const resolvePlanId = (notif: Notification): string | null => {
+    if (notif.type === 'consultation' && notif.relatedId?.startsWith('fp-')) {
+      return notif.relatedId
+    }
+    const pId = resolvePatientId(notif)
+    if (pId && (notif.title.includes('复诊') || notif.title.includes('随访'))) {
+      const patientPlans = followupPlans.filter((p) => p.patientId === pId).sort((a, b) =>
+        new Date(b.nextDate).getTime() - new Date(a.nextDate).getTime()
+      )
+      if (patientPlans.length > 0) return patientPlans[0].id
     }
     return null
   }
@@ -142,13 +198,19 @@ export default function Messages() {
       records: medicalRecords.filter((r) => r.patientId === selectedPatientId).slice(0, 3),
       examinations: examinations.filter((e) => e.patientId === selectedPatientId).slice(0, 3),
       medications: medications.filter((m) => m.patientId === selectedPatientId && m.status === 'active').slice(0, 3),
-      plans: followupPlans.filter((p) => p.patientId === selectedPatientId && p.status === 'active').slice(0, 3),
+      plans: followupPlans.filter((p) => p.patientId === selectedPatientId).slice(0, 3),
     }
   }, [selectedPatientId, consultations, medicalRecords, examinations, medications, followupPlans])
 
   const relatedFeeRecord = selectedMessage?.type === 'fee' && selectedMessage.relatedId
     ? feeRecords.find((f) => f.id === selectedMessage.relatedId)
     : null
+
+  const relatedReferralId = selectedMessage ? resolveReferralId(selectedMessage) : null
+  const relatedReferral = relatedReferralId ? referrals.find((r) => r.id === relatedReferralId) : null
+
+  const relatedPlanId = selectedMessage ? resolvePlanId(selectedMessage) : null
+  const relatedPlan = relatedPlanId ? followupPlans.find((p) => p.id === relatedPlanId) : null
 
   const handleSelectMessage = (id: string) => {
     setSelectedMessageId(id)
@@ -178,10 +240,124 @@ export default function Messages() {
     }))
   }
 
+  const handleAcceptReferral = () => {
+    if (!relatedReferralId) return
+    updateReferral(relatedReferralId, { status: 'accepted' })
+    addNotification({
+      id: `notif-${Date.now()}`,
+      userId: selectedPatientId || '',
+      type: 'referral',
+      title: '转诊已接受',
+      content: `您的转诊申请已被专科医生接受${relatedReferral?.reason ? '：' + relatedReferral.reason.slice(0, 30) : ''}`,
+      isRead: false,
+      relatedId: relatedReferralId,
+      createdAt: new Date().toISOString(),
+    })
+  }
+
+  const handleOpenRejectReferral = () => {
+    if (!relatedReferralId) return
+    setTargetReferralId(relatedReferralId)
+    setRejectReason('')
+    setShowRejectModal(true)
+  }
+
+  const handleConfirmReject = () => {
+    if (!targetReferralId) return
+    updateReferral(targetReferralId, { status: 'rejected' })
+    addNotification({
+      id: `notif-${Date.now()}`,
+      userId: selectedPatientId || '',
+      type: 'referral',
+      title: '转诊已拒绝',
+      content: `您的转诊申请未被接受${rejectReason ? '，原因：' + rejectReason : ''}`,
+      isRead: false,
+      relatedId: targetReferralId,
+      createdAt: new Date().toISOString(),
+    })
+    setShowRejectModal(false)
+    setTargetReferralId(null)
+    setRejectReason('')
+  }
+
+  const handleOpenPlanAction = (action: 'complete' | 'delay' | 'cancel') => {
+    if (!relatedPlanId) return
+    setTargetPlanId(relatedPlanId)
+    setPlanAction(action)
+    const today = new Date().toISOString().slice(0, 10)
+    setPlanForm({
+      actualDate: today,
+      nextDate: relatedPlan?.nextDate?.slice(0, 10) || '',
+      note: '',
+    })
+    setShowPlanModal(true)
+  }
+
+  const handleConfirmPlanAction = () => {
+    if (!targetPlanId || !planAction) return
+    const pId = selectedPatientId || ''
+    if (planAction === 'complete') {
+      updatePlan(targetPlanId, { status: 'completed', actualDate: planForm.actualDate })
+      addNotification({
+        id: `notif-${Date.now()}`,
+        userId: pId,
+        type: 'consultation',
+        title: '复诊完成',
+        content: `您${formatDate(planForm.actualDate)}的复诊已完成，后续请关注健康状态。`,
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      })
+    } else if (planAction === 'delay') {
+      if (!planForm.nextDate) return
+      const cur = followupPlans.find((p) => p.id === targetPlanId)
+      const notes = [cur?.notes, planForm.note ? `延期原因：${planForm.note}` : ''].filter(Boolean).join('；')
+      updatePlan(targetPlanId, { status: 'delayed', nextDate: planForm.nextDate, notes: notes || undefined })
+      addNotification({
+        id: `notif-${Date.now()}`,
+        userId: pId,
+        type: 'consultation',
+        title: '复诊时间调整',
+        content: `您的复诊时间已调整为${formatDate(planForm.nextDate)}${planForm.note ? '，原因：' + planForm.note : ''}`,
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      })
+    } else if (planAction === 'cancel') {
+      const cur = followupPlans.find((p) => p.id === targetPlanId)
+      const notes = [cur?.notes, planForm.note ? `取消原因：${planForm.note}` : ''].filter(Boolean).join('；')
+      updatePlan(targetPlanId, { status: 'cancelled', notes: notes || undefined })
+      addNotification({
+        id: `notif-${Date.now()}`,
+        userId: pId,
+        type: 'system',
+        title: '复诊取消',
+        content: `您原定于${formatDate(cur?.nextDate || '')}的复诊已取消${planForm.note ? '，原因：' + planForm.note : ''}`,
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      })
+    }
+    setShowPlanModal(false)
+    setTargetPlanId(null)
+    setPlanAction(null)
+  }
+
   return (
     <div className="flex h-[calc(100vh-7rem)] flex-col rounded-xl border border-gray-200 bg-white overflow-hidden">
       <div className="flex items-center justify-between border-b border-gray-200 bg-white p-4">
-        <h1 className="text-lg font-semibold text-gray-900">消息中心</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-gray-900">消息中心</h1>
+          {filterPatientId && (
+            <div className="flex items-center gap-1 rounded-full bg-[#0A6EBD]/10 text-[#0A6EBD] px-2.5 py-1 text-xs font-medium">
+              <Filter className="h-3 w-3" />
+              仅看 {patients.find((p) => p.id === filterPatientId)?.name || '该患者'}
+              <button
+                onClick={() => setFilterPatientId('')}
+                className="hover:bg-[#0A6EBD]/20 rounded-full p-0.5 transition-colors"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <select
             value={filterPatientId}
@@ -224,6 +400,9 @@ export default function Messages() {
               <div className="flex flex-col items-center gap-2">
                 <Mail className="h-10 w-10" />
                 <span className="text-sm">暂无消息</span>
+                {filterPatientId && (
+                  <span className="text-xs text-gray-300">尝试清除患者筛选</span>
+                )}
               </div>
             </div>
           ) : (
@@ -281,10 +460,10 @@ export default function Messages() {
               </div>
             </div>
           ) : (
-            <div className="flex">
-              <div className="flex-1 p-6 flex flex-col gap-4">
+            <div className="flex h-full">
+              <div className="flex-1 p-6 flex flex-col gap-4 overflow-y-auto">
                 <h2 className="text-xl font-semibold text-gray-900">{selectedMessage.title}</h2>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-sm text-gray-400">{formatDateTime(selectedMessage.createdAt)}</span>
                   <Badge variant={typeBadgeVariantMap[selectedMessage.type]}>
                     {typeLabelMap[selectedMessage.type]}
@@ -293,21 +472,39 @@ export default function Messages() {
                 <p className="text-sm text-gray-700 leading-relaxed">{selectedMessage.content}</p>
 
                 {selectedPatient && (
-                  <div className="flex items-center gap-2 mt-2">
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <Link
-                      to={`/timeline/${selectedPatient.id}`}
+                      to={`/overview/${selectedPatient.id}`}
                       className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 hover:bg-gray-100 transition-colors"
                     >
                       <Avatar src={selectedPatient.avatar} name={selectedPatient.name} size="sm" />
                       <span className="text-sm font-medium text-gray-900">{selectedPatient.name}</span>
-                      <span className="text-xs text-gray-500">查看时间线 →</span>
+                      <span className="text-xs text-gray-500">查看概览 →</span>
+                    </Link>
+                    <Link
+                      to={`/timeline/${selectedPatient.id}`}
+                      className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-[#0A6EBD] border border-[#0A6EBD]/20 bg-[#0A6EBD]/5 hover:bg-[#0A6EBD]/10 transition-colors"
+                    >
+                      <Calendar className="h-3.5 w-3.5" />
+                      时间线
                     </Link>
                   </div>
                 )}
 
                 {selectedMessage.type === 'fee' && relatedFeeRecord && (
                   <div className="mt-4 rounded-xl border border-gray-200 p-4">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">费用明细</h3>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-gray-900">费用明细</h3>
+                      <Badge variant={
+                        relatedFeeRecord.status === 'confirmed' ? 'success'
+                          : relatedFeeRecord.status === 'disputed' ? 'warning'
+                            : 'primary'
+                      }>
+                        {relatedFeeRecord.status === 'confirmed' ? '已确认'
+                          : relatedFeeRecord.status === 'disputed' ? '异议处理中'
+                            : '待确认'}
+                      </Badge>
+                    </div>
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-100 text-gray-500">
@@ -331,13 +528,34 @@ export default function Messages() {
                       </tfoot>
                     </table>
                     {relatedFeeRecord.status === 'pending' && (
-                      <div className="mt-4 flex gap-3">
-                        <Button size="sm" onClick={() => confirmFee(relatedFeeRecord.id)}>确认费用</Button>
-                        <Button variant="danger" size="sm">异议申诉</Button>
+                      <div className="mt-4 flex gap-3 flex-wrap">
+                        <Button size="sm" onClick={() => {
+                          confirmFee(relatedFeeRecord.id)
+                          addNotification({
+                            id: `notif-${Date.now()}`,
+                            userId: selectedPatientId || '',
+                            type: 'fee',
+                            title: '费用已确认',
+                            content: `您的服务费用¥${relatedFeeRecord.amount.toFixed(2)}已确认。`,
+                            isRead: false,
+                            relatedId: relatedFeeRecord.id,
+                            createdAt: new Date().toISOString(),
+                          })
+                        }}>
+                          <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                          确认费用
+                        </Button>
+                        <Button variant="danger" size="sm">
+                          <XCircle className="h-3.5 w-3.5 mr-1" />
+                          异议申诉
+                        </Button>
                       </div>
                     )}
                     {relatedFeeRecord.status === 'confirmed' && (
-                      <p className="mt-3 text-sm text-green-600">费用已确认</p>
+                      <p className="mt-3 text-sm text-green-600 flex items-center gap-1">
+                        <CheckCircle2 className="h-4 w-4" />
+                        费用已确认
+                      </p>
                     )}
                     {relatedFeeRecord.status === 'disputed' && (
                       <p className="mt-3 text-sm text-orange-600">异议处理中</p>
@@ -397,14 +615,19 @@ export default function Messages() {
                   </div>
                 )}
 
-                {selectedMessage.type === 'referral' && selectedMessage.relatedId && (
+                {selectedMessage.type === 'referral' && relatedReferral && (
                   <div className="mt-4 rounded-xl border border-gray-200 p-4">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">转诊状态</h3>
-                    <div className="flex flex-col gap-0">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-gray-900">转诊状态</h3>
+                      <Badge variant={referralStatusMap[relatedReferral.status].variant}>
+                        {referralStatusMap[relatedReferral.status].label}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-col gap-0 mb-4">
                       {[
                         { label: '提交转诊', done: true },
-                        { label: '专科接收', done: ['accepted', 'completed'].includes(selectedMessage.content.includes('接受') ? 'accepted' : selectedMessage.content.includes('完成') ? 'completed' : '') },
-                        { label: '诊疗完成', done: selectedMessage.content.includes('完成') },
+                        { label: '专科接收', done: ['accepted', 'completed'].includes(relatedReferral.status) },
+                        { label: '诊疗完成', done: relatedReferral.status === 'completed' },
                       ].map((step, i) => (
                         <div key={i} className="flex items-start gap-3">
                           <div className="flex flex-col items-center">
@@ -420,6 +643,30 @@ export default function Messages() {
                         </div>
                       ))}
                     </div>
+                    {relatedReferral.reason && (
+                      <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 text-sm text-gray-600 mb-3">
+                        <span className="font-medium text-gray-700">转诊原因：</span>
+                        {relatedReferral.reason}
+                      </div>
+                    )}
+                    {relatedReferral.specialistOpinion && (
+                      <div className="p-3 rounded-lg bg-blue-50 border border-blue-100 text-sm text-blue-700">
+                        <span className="font-medium">专科意见：</span>
+                        {relatedReferral.specialistOpinion}
+                      </div>
+                    )}
+                    {relatedReferral.status === 'pending' && (
+                      <div className="mt-4 flex gap-3 flex-wrap">
+                        <Button size="sm" variant="success" onClick={handleAcceptReferral}>
+                          <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                          接受转诊
+                        </Button>
+                        <Button size="sm" variant="danger" onClick={handleOpenRejectReferral}>
+                          <XCircle className="h-3.5 w-3.5 mr-1" />
+                          拒绝
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -433,26 +680,120 @@ export default function Messages() {
                         <p className="mt-2 text-xs text-red-400">请及时关注并安排就诊</p>
                       </div>
                     </div>
+                    {selectedPatientId && (
+                      <div className="mt-4">
+                        <Link to={`/followup/${selectedPatientId}`}>
+                          <Button size="sm" variant="danger">
+                            <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                            查看异常预警
+                          </Button>
+                        </Link>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {selectedMessage.type === 'consultation' && selectedMessage.relatedId && (
-                  <div className="mt-4">
-                    {(() => {
-                      const consultation = consultations.find((c) => c.id === selectedMessage.relatedId)
-                      const targetPatientId = consultation?.patientId || selectedMessage.relatedId
-                      return (
-                        <Link to={`/consultation/${targetPatientId}`}>
-                          <Button size="sm">进入问诊室</Button>
+                {(selectedMessage.type === 'consultation') && (
+                  <div className="mt-4 flex flex-col gap-4">
+                    {relatedPlan && (
+                      <div className="rounded-xl border border-gray-200 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-sm font-semibold text-gray-900">关联随访计划</h3>
+                          <Badge variant={planStatusMap[relatedPlan.status].variant}>
+                            {planStatusMap[relatedPlan.status].label}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+                          <div>
+                            <span className="text-xs text-gray-500">下次复诊</span>
+                            <p className="text-gray-900 font-medium">{formatDate(relatedPlan.nextDate)}</p>
+                          </div>
+                          <div>
+                            <span className="text-xs text-gray-500">随访频率</span>
+                            <p className="text-gray-900 font-medium">{relatedPlan.frequency}</p>
+                          </div>
+                          {relatedPlan.reminderTime && (
+                            <div>
+                              <span className="text-xs text-gray-500">提醒时间</span>
+                              <p className="text-gray-900 font-medium">{relatedPlan.reminderTime}</p>
+                            </div>
+                          )}
+                          {relatedPlan.actualDate && (
+                            <div>
+                              <span className="text-xs text-gray-500">实际完成</span>
+                              <p className="text-gray-900 font-medium">{formatDate(relatedPlan.actualDate)}</p>
+                            </div>
+                          )}
+                        </div>
+                        {relatedPlan.notes && (
+                          <p className="text-sm text-gray-600 p-2 bg-gray-50 rounded-lg">
+                            备注：{relatedPlan.notes}
+                          </p>
+                        )}
+                        {['active', 'delayed'].includes(relatedPlan.status) && (
+                          <div className="mt-4 flex gap-2 flex-wrap">
+                            <Button size="sm" variant="success" onClick={() => handleOpenPlanAction('complete')}>
+                              <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                              标记完成
+                            </Button>
+                            <Button size="sm" variant="warning" onClick={() => handleOpenPlanAction('delay')}>
+                              <CalendarClock className="h-3.5 w-3.5 mr-1" />
+                              延期
+                            </Button>
+                            <Button size="sm" variant="danger" onClick={() => handleOpenPlanAction('cancel')}>
+                              <XCircle className="h-3.5 w-3.5 mr-1" />
+                              取消
+                            </Button>
+                            {selectedPatientId && (
+                              <Link to={`/followup/${selectedPatientId}?planId=${relatedPlan.id}`}>
+                                <Button size="sm" variant="ghost">
+                                  详情
+                                </Button>
+                              </Link>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                      {selectedMessage.relatedId && (
+                        (() => {
+                          const consultation = consultations.find((c) => c.id === selectedMessage.relatedId)
+                          const targetPatientId = consultation?.patientId || selectedPatientId
+                          if (!targetPatientId) return null
+                          return (
+                            <Link to={`/consultation/${targetPatientId}`}>
+                              <Button size="sm">
+                                <Video className="h-3.5 w-3.5 mr-1" />
+                                进入问诊室
+                              </Button>
+                            </Link>
+                          )
+                        })()
+                      )}
+                      {!selectedMessage.relatedId && selectedPatientId && (
+                        <Link to={`/consultation/${selectedPatientId}`}>
+                          <Button size="sm">
+                            <Video className="h-3.5 w-3.5 mr-1" />
+                            发起问诊
+                          </Button>
                         </Link>
-                      )
-                    })()}
+                      )}
+                      {selectedPatientId && (
+                        <Link to={`/overview/${selectedPatientId}`}>
+                          <Button variant="ghost" size="sm">
+                            返回概览
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
 
               {selectedPatientId && relatedRecords && (
-                <div className="w-72 border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-4">
+                <div className="w-72 border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-4 shrink-0">
                   <div className="flex items-center gap-2 mb-4">
                     <FileText className="h-4 w-4 text-gray-500" />
                     <span className="text-sm font-semibold text-gray-700">关联记录</span>
@@ -465,7 +806,7 @@ export default function Messages() {
                         {relatedRecords.consultations.map((c) => (
                           <Link
                             key={c.id}
-                            to={`/consultation/${selectedPatientId}`}
+                            to={`/consultation/${selectedPatientId}?consultationId=${c.id}`}
                             className="flex items-center gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm hover:border-[#0A6EBD]/30 transition-colors"
                           >
                             <Video className="h-3.5 w-3.5 text-green-500 shrink-0" />
@@ -484,7 +825,7 @@ export default function Messages() {
                         {relatedRecords.records.map((r) => (
                           <Link
                             key={r.id}
-                            to={`/records/${selectedPatientId}`}
+                            to={`/records/${selectedPatientId}?recordId=${r.id}`}
                             className="flex items-center gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm hover:border-[#0A6EBD]/30 transition-colors"
                           >
                             <FileText className="h-3.5 w-3.5 text-blue-500 shrink-0" />
@@ -502,7 +843,7 @@ export default function Messages() {
                         {relatedRecords.examinations.map((e) => (
                           <Link
                             key={e.id}
-                            to={`/examinations/${selectedPatientId}`}
+                            to={`/examinations/${selectedPatientId}?examId=${e.id}`}
                             className="flex items-center gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm hover:border-[#0A6EBD]/30 transition-colors"
                           >
                             <ClipboardList className="h-3.5 w-3.5 text-purple-500 shrink-0" />
@@ -538,11 +879,16 @@ export default function Messages() {
                         {relatedRecords.plans.map((p) => (
                           <Link
                             key={p.id}
-                            to={`/followup/${selectedPatientId}`}
+                            to={`/followup/${selectedPatientId}?planId=${p.id}`}
                             className="flex items-center gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm hover:border-[#0A6EBD]/30 transition-colors"
                           >
                             <Calendar className="h-3.5 w-3.5 text-teal-500 shrink-0" />
-                            <span className="truncate text-gray-700">{formatDate(p.nextDate)}</span>
+                            <div className="flex flex-col min-w-0 flex-1">
+                              <span className="truncate text-gray-700 text-xs">{formatDate(p.nextDate)}</span>
+                              <Badge variant={planStatusMap[p.status].variant} className="w-fit">
+                                {planStatusMap[p.status].label}
+                              </Badge>
+                            </div>
                           </Link>
                         ))}
                       </div>
@@ -562,6 +908,103 @@ export default function Messages() {
           )}
         </div>
       </div>
+
+      <Modal
+        isOpen={showRejectModal}
+        onClose={() => setShowRejectModal(false)}
+        title="拒绝转诊"
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowRejectModal(false)}>取消</Button>
+            <Button variant="danger" onClick={handleConfirmReject}>确认拒绝</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+            拒绝转诊将通知患者和基层医生，请填写原因。
+          </div>
+          <Input
+            label="拒绝原因"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="如：该患者情况无需专科..."
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showPlanModal}
+        onClose={() => setShowPlanModal(false)}
+        title={
+          planAction === 'complete' ? '标记复诊完成'
+            : planAction === 'delay' ? '延期复诊'
+              : '取消复诊'
+        }
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowPlanModal(false)}>返回</Button>
+            <Button
+              variant={planAction === 'complete' ? 'success' : planAction === 'delay' ? 'warning' : 'danger'}
+              onClick={handleConfirmPlanAction}
+              disabled={planAction === 'delay' && !planForm.nextDate}
+            >
+              {planAction === 'complete' ? '确认完成' : planAction === 'delay' ? '确认延期' : '确认取消'}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          {planAction === 'complete' && (
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-gray-700">实际复诊日期</label>
+              <input
+                type="date"
+                value={planForm.actualDate}
+                onChange={(e) => setPlanForm((p) => ({ ...p, actualDate: e.target.value }))}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20"
+              />
+            </div>
+          )}
+          {planAction === 'delay' && (
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-gray-700">新的复诊日期</label>
+              <input
+                type="date"
+                value={planForm.nextDate}
+                onChange={(e) => setPlanForm((p) => ({ ...p, nextDate: e.target.value }))}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20"
+              />
+            </div>
+          )}
+          {planAction === 'complete' && (
+            <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+              完成后患者会收到通知。
+            </div>
+          )}
+          {planAction === 'cancel' && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+              取消后后续如需复诊需重新安排。
+            </div>
+          )}
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">备注{planAction !== 'complete' ? '（选填）' : '（选填）'}</label>
+            <textarea
+              value={planForm.note}
+              onChange={(e) => setPlanForm((p) => ({ ...p, note: e.target.value }))}
+              placeholder={
+                planAction === 'complete' ? '本次复诊小结...'
+                  : planAction === 'delay' ? '延期原因...'
+                    : '取消原因...'
+              }
+              rows={3}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20 resize-none"
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

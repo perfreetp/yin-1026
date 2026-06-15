@@ -153,7 +153,7 @@ export default function Patients() {
                 patient={patient}
                 abnormalCount={getAbnormalCount(patient.id)}
                 lastFollowupDate={getNextFollowupDate(patient.id)}
-                onClick={() => navigate(`/consultation/${patient.id}`)}
+                onClick={() => navigate(`/overview/${patient.id}`)}
               />
             ))}
           </div>

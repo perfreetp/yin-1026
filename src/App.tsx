@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import Patients from '@/pages/Patients'
+import PatientOverview from '@/pages/PatientOverview'
 import Consultation from '@/pages/Consultation'
 import MedicalRecords from '@/pages/MedicalRecords'
 import Examinations from '@/pages/Examinations'
@@ -16,6 +17,7 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/" element={<Navigate to="/patients" replace />} />
           <Route path="/patients" element={<Patients />} />
+          <Route path="/overview/:patientId" element={<PatientOverview />} />
           <Route path="/timeline/:patientId" element={<PatientTimeline />} />
           <Route path="/consultation/:patientId" element={<Consultation />} />
           <Route path="/records/:patientId" element={<MedicalRecords />} />

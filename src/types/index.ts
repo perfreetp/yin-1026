@@ -101,9 +101,10 @@ export interface FollowupPlan {
   doctorId: string;
   nextDate: string;
   frequency: string;
-  status: 'active' | 'completed' | 'paused';
+  status: 'active' | 'completed' | 'paused' | 'cancelled' | 'delayed';
   notes?: string;
   reminderTime?: string;
+  actualDate?: string;
 }
 
 export interface Question {

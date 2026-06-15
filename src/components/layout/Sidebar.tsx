@@ -9,6 +9,7 @@ import {
   Calendar,
   Bell,
   Clock,
+  LayoutDashboard,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useNotificationStore } from "@/stores/notificationStore"
@@ -16,6 +17,7 @@ import { usePatientStore } from "@/stores/patientStore"
 
 const navItems = [
   { label: "患者列表", icon: Users, path: "/patients", exact: true },
+  { label: "概览", icon: LayoutDashboard, path: "/overview", exact: false },
   { label: "时间线", icon: Clock, path: "/timeline", exact: false },
   { label: "问诊室", icon: Video, path: "/consultation", exact: false },
   { label: "病历", icon: FileText, path: "/records", exact: false },

@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useState, useMemo, useEffect } from 'react'
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Calendar,
@@ -12,6 +12,11 @@ import {
   Pill,
   Clock,
   Plus,
+  CheckCircle2,
+  XCircle,
+  CalendarClock,
+  LayoutDashboard,
+  Bell,
 } from 'lucide-react'
 import { usePatient } from '@/hooks/usePatient'
 import { useFollowupStore } from '@/stores/followupStore'
@@ -34,10 +39,12 @@ import type { Answer } from '@/types'
 
 type TabKey = 'plan' | 'trend' | 'questionnaire' | 'alert' | 'education'
 
-const planStatusMap: Record<string, { label: string; variant: 'success' | 'default' | 'warning' }> = {
-  active: { label: '进行中', variant: 'success' },
-  completed: { label: '已完成', variant: 'default' },
-  paused: { label: '已暂停', variant: 'warning' },
+const planStatusMap: Record<string, { label: string; variant: 'success' | 'default' | 'warning' | 'primary' | 'danger' }> = {
+  active: { label: '待复诊', variant: 'primary' },
+  completed: { label: '已完成', variant: 'success' },
+  paused: { label: '已暂停', variant: 'default' },
+  cancelled: { label: '已取消', variant: 'danger' },
+  delayed: { label: '已延期', variant: 'warning' },
 }
 
 const questionnaireStatusMap: Record<string, { label: string; variant: 'warning' | 'success' | 'danger' }> = {
@@ -55,15 +62,19 @@ const tabConfig = [
 ]
 
 const navLinks = [
+  { label: '概览', path: '/overview', icon: LayoutDashboard },
   { label: '时间线', path: '/timeline', icon: Clock },
   { label: '问诊室', path: '/consultation', icon: Stethoscope },
   { label: '病历', path: '/records', icon: FileText },
   { label: '检查资料', path: '/examinations', icon: ClipboardList },
   { label: '用药', path: '/medications', icon: Pill },
+  { label: '消息', path: '/messages', icon: Bell, withPatientParam: true },
 ]
 
 export default function FollowupPlan() {
   const { patientId } = useParams<{ patientId: string }>()
+  const [searchParams] = useSearchParams()
+  const targetPlanId = searchParams.get('planId')
   const navigate = useNavigate()
   const { patient, followupPlans } = usePatient(patientId || '')
   const { questionnaires, educationArticles, submitQuestionnaire, getQuestionnairesByPatient, getAbnormalIndicators, getIndicatorsByPatient, updatePlan, addPlan } = useFollowupStore()
@@ -85,6 +96,28 @@ export default function FollowupPlan() {
     notes: '',
     reminderTime: '09:00',
   })
+  const [highlightedPlanId, setHighlightedPlanId] = useState<string | null>(null)
+  const [showCompleteModal, setShowCompleteModal] = useState(false)
+  const [completePlanId, setCompletePlanId] = useState<string | null>(null)
+  const [completeActualDate, setCompleteActualDate] = useState(new Date().toISOString().slice(0, 10))
+  const [showDelayModal, setShowDelayModal] = useState(false)
+  const [delayPlanId, setDelayPlanId] = useState<string | null>(null)
+  const [delayNextDate, setDelayNextDate] = useState('')
+  const [delayNote, setDelayNote] = useState('')
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [cancelPlanId, setCancelPlanId] = useState<string | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+
+  useEffect(() => {
+    if (targetPlanId) {
+      setHighlightedPlanId(targetPlanId)
+      const el = document.getElementById(`plan-${targetPlanId}`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        setTimeout(() => setHighlightedPlanId(null), 3000)
+      }
+    }
+  }, [targetPlanId])
 
   const patientQuestionnaires = useMemo(
     () => getQuestionnairesByPatient(patientId || ''),
@@ -240,6 +273,82 @@ export default function FollowupPlan() {
     setNewPlanForm({ nextDate: '', frequency: '每月一次', notes: '', reminderTime: '09:00' })
   }
 
+  const handleOpenComplete = (planId: string) => {
+    setCompletePlanId(planId)
+    setCompleteActualDate(new Date().toISOString().slice(0, 10))
+    setShowCompleteModal(true)
+  }
+
+  const handleCompletePlan = () => {
+    if (!completePlanId || !completeActualDate) return
+    const plan = followupPlans.find((p) => p.id === completePlanId)
+    updatePlan(completePlanId, { status: 'completed', actualDate: completeActualDate })
+    addNotification({
+      id: `notif-${Date.now()}`,
+      userId: patientId || '',
+      type: 'consultation',
+      title: '复诊完成',
+      content: `您${formatDate(completeActualDate)}的复诊已完成，${plan?.frequency ? '下次安排：' + plan.frequency : '后续请关注健康状态'}`,
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    })
+    setShowCompleteModal(false)
+    setCompletePlanId(null)
+  }
+
+  const handleOpenDelay = (planId: string, currentDate: string) => {
+    setDelayPlanId(planId)
+    setDelayNextDate(currentDate.slice(0, 10))
+    setDelayNote('')
+    setShowDelayModal(true)
+  }
+
+  const handleDelayPlan = () => {
+    if (!delayPlanId || !delayNextDate) return
+    const plan = followupPlans.find((p) => p.id === delayPlanId)
+    const newNotes = [plan?.notes, delayNote ? `延期原因：${delayNote}` : ''].filter(Boolean).join('；')
+    updatePlan(delayPlanId, {
+      status: 'delayed',
+      nextDate: delayNextDate,
+      notes: newNotes || undefined,
+    })
+    addNotification({
+      id: `notif-${Date.now()}`,
+      userId: patientId || '',
+      type: 'consultation',
+      title: '复诊时间调整',
+      content: `您的复诊时间已调整为${formatDate(delayNextDate)}${delayNote ? '，原因：' + delayNote : ''}`,
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    })
+    setShowDelayModal(false)
+    setDelayPlanId(null)
+  }
+
+  const handleOpenCancel = (planId: string) => {
+    setCancelPlanId(planId)
+    setCancelReason('')
+    setShowCancelModal(true)
+  }
+
+  const handleCancelPlan = () => {
+    if (!cancelPlanId) return
+    const plan = followupPlans.find((p) => p.id === cancelPlanId)
+    const newNotes = [plan?.notes, cancelReason ? `取消原因：${cancelReason}` : ''].filter(Boolean).join('；')
+    updatePlan(cancelPlanId, { status: 'cancelled', notes: newNotes || undefined })
+    addNotification({
+      id: `notif-${Date.now()}`,
+      userId: patientId || '',
+      type: 'system',
+      title: '复诊取消',
+      content: `您原定于${formatDate(plan?.nextDate || '')}的复诊已取消${cancelReason ? '，原因：' + cancelReason : ''}`,
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    })
+    setShowCancelModal(false)
+    setCancelPlanId(null)
+  }
+
   const renderQuestionInput = (question: typeof selectedQuestionnaire extends null ? never : NonNullable<typeof selectedQuestionnaire>['questions'][number]) => {
     const answer = questionnaireAnswers.find((a) => a.questionId === question.id)
     const currentValue = answer?.value ?? ''
@@ -355,7 +464,7 @@ export default function FollowupPlan() {
           {navLinks.map((link) => (
             <Link
               key={link.label}
-              to={`${link.path}/${patientId}`}
+              to={link.withPatientParam ? `${link.path}?patientId=${patientId}` : `${link.path}/${patientId}`}
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
             >
               <link.icon className="h-4 w-4" />
@@ -381,53 +490,105 @@ export default function FollowupPlan() {
                 </Button>
               </div>
               <div className="flex flex-col gap-4">
-                {followupPlans.map((plan) => (
-                  <Card key={plan.id}>
-                    <div className="flex items-start justify-between">
-                      <div className="flex flex-col gap-2 flex-1">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-[#0A6EBD]" />
-                          <span className="text-sm font-semibold text-gray-900">
-                            随访频率：{plan.frequency}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-gray-500">
-                          <span>下次随访：{formatDate(plan.nextDate)}</span>
-                        </div>
-                        {plan.notes && (
-                          <div className="text-sm text-gray-500">
-                            备注：{plan.notes}
+                {followupPlans.map((plan) => {
+                  const isHighlighted = highlightedPlanId === plan.id
+                  const showActions = plan.status === 'active' || plan.status === 'delayed'
+                  return (
+                    <Card
+                      key={plan.id}
+                      id={`plan-${plan.id}`}
+                      className={cn(
+                        'transition-all duration-500',
+                        isHighlighted && 'ring-2 ring-[#0A6EBD] shadow-lg'
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex flex-col gap-2 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Calendar className="h-4 w-4 text-[#0A6EBD] shrink-0" />
+                            <span className="text-sm font-semibold text-gray-900">
+                              随访频率：{plan.frequency}
+                            </span>
+                            {plan.actualDate && plan.status === 'completed' && (
+                              <span className="text-xs text-green-600 flex items-center gap-1">
+                                <CheckCircle2 className="h-3 w-3" />
+                                实际完成：{formatDate(plan.actualDate)}
+                              </span>
+                            )}
                           </div>
-                        )}
-                        {plan.reminderTime && (
-                          <div className="text-sm text-gray-500">
-                            提醒时间：{plan.reminderTime}
+                          <div className="flex items-center gap-2 text-sm text-gray-500 flex-wrap">
+                            <span>下次随访：{formatDate(plan.nextDate)}</span>
+                            {plan.status === 'delayed' && (
+                              <Badge variant="warning">已延期</Badge>
+                            )}
                           </div>
-                        )}
-                        <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 p-3">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="text-xs font-medium text-blue-700">预约复诊</span>
-                              <p className="text-sm text-blue-900 mt-1">
-                                预约日期：{formatDate(plan.nextDate)}
-                              </p>
+                          {plan.notes && (
+                            <div className="text-sm text-gray-500 break-words">
+                              备注：{plan.notes}
                             </div>
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              onClick={() => handleOpenEditModal(plan.id, plan.nextDate)}
-                            >
-                              调整预约
-                            </Button>
+                          )}
+                          {plan.reminderTime && (
+                            <div className="text-sm text-gray-500">
+                              提醒时间：{plan.reminderTime}
+                            </div>
+                          )}
+                          <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <span className="text-xs font-medium text-blue-700">预约复诊</span>
+                                <p className="text-sm text-blue-900 mt-1">
+                                  预约日期：{formatDate(plan.nextDate)}
+                                </p>
+                              </div>
+                              {showActions && (
+                                <div className="flex flex-wrap gap-2 shrink-0">
+                                  <Button
+                                    variant="primary"
+                                    size="sm"
+                                    onClick={() => handleOpenEditModal(plan.id, plan.nextDate)}
+                                  >
+                                    调整预约
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
                           </div>
+                          {showActions && (
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              <Button
+                                variant="success"
+                                size="sm"
+                                onClick={() => handleOpenComplete(plan.id)}
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                                标记已完成
+                              </Button>
+                              <Button
+                                variant="warning"
+                                size="sm"
+                                onClick={() => handleOpenDelay(plan.id, plan.nextDate)}
+                              >
+                                <CalendarClock className="h-3.5 w-3.5 mr-1" />
+                                延期
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => handleOpenCancel(plan.id)}
+                              >
+                                <XCircle className="h-3.5 w-3.5 mr-1" />
+                                取消
+                              </Button>
+                            </div>
+                          )}
                         </div>
+                        <Badge variant={planStatusMap[plan.status]?.variant || 'default'}>
+                          {planStatusMap[plan.status]?.label || plan.status}
+                        </Badge>
                       </div>
-                      <Badge variant={planStatusMap[plan.status]?.variant || 'default'}>
-                        {planStatusMap[plan.status]?.label || plan.status}
-                      </Badge>
-                    </div>
-                  </Card>
-                ))}
+                    </Card>
+                  )
+                })}
               </div>
 
               <Card>
@@ -743,6 +904,98 @@ export default function FollowupPlan() {
               value={newPlanForm.notes}
               onChange={(e) => setNewPlanForm((prev) => ({ ...prev, notes: e.target.value }))}
               placeholder="复诊注意事项..."
+              rows={3}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20 resize-none"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showCompleteModal}
+        onClose={() => setShowCompleteModal(false)}
+        title="标记复诊完成"
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowCompleteModal(false)}>取消</Button>
+            <Button variant="success" onClick={handleCompletePlan}>确认完成</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+            复诊完成后，患者会收到完成通知。
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">实际复诊日期</label>
+            <input
+              type="date"
+              value={completeActualDate}
+              onChange={(e) => setCompleteActualDate(e.target.value)}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showDelayModal}
+        onClose={() => setShowDelayModal(false)}
+        title="延期复诊"
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowDelayModal(false)}>取消</Button>
+            <Button variant="warning" onClick={handleDelayPlan} disabled={!delayNextDate}>确认延期</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">新的复诊日期</label>
+            <input
+              type="date"
+              value={delayNextDate}
+              onChange={(e) => setDelayNextDate(e.target.value)}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">延期原因</label>
+            <textarea
+              value={delayNote}
+              onChange={(e) => setDelayNote(e.target.value)}
+              placeholder="患者身体不适、医生临时有事等..."
+              rows={3}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20 resize-none"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        title="取消复诊"
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowCancelModal(false)}>返回</Button>
+            <Button variant="danger" onClick={handleCancelPlan}>确认取消</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+            取消后，后续如需复诊需重新安排。
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">取消原因</label>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="请输入取消原因..."
               rows={3}
               className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20 resize-none"
             />

@@ -73,14 +73,15 @@ const navLinks = [
 
 export default function FollowupPlan() {
   const { patientId } = useParams<{ patientId: string }>()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const targetPlanId = searchParams.get('planId')
+  const tabFromUrl = searchParams.get('tab')
   const navigate = useNavigate()
   const { patient, followupPlans } = usePatient(patientId || '')
   const { questionnaires, educationArticles, submitQuestionnaire, getQuestionnairesByPatient, getAbnormalIndicators, getIndicatorsByPatient, updatePlan, addPlan } = useFollowupStore()
   const { addNotification } = useNotificationStore()
 
-  const [activeTab, setActiveTab] = useState<TabKey>('plan')
+  const [activeTab, setActiveTab] = useState<TabKey>((tabFromUrl as TabKey) || 'plan')
   const [selectedQuestionnaireId, setSelectedQuestionnaireId] = useState<string | null>(null)
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null)
   const [questionnaireAnswers, setQuestionnaireAnswers] = useState<Answer[]>([])
@@ -118,6 +119,19 @@ export default function FollowupPlan() {
       }
     }
   }, [targetPlanId])
+
+  useEffect(() => {
+    if (tabFromUrl && tabConfig.find((t) => t.key === tabFromUrl)) {
+      setActiveTab(tabFromUrl as TabKey)
+    }
+  }, [tabFromUrl])
+
+  const handleTabChange = (key: string) => {
+    setActiveTab(key as TabKey)
+    const newParams = new URLSearchParams(searchParams)
+    newParams.set('tab', key)
+    setSearchParams(newParams)
+  }
 
   const patientQuestionnaires = useMemo(
     () => getQuestionnairesByPatient(patientId || ''),
@@ -476,7 +490,7 @@ export default function FollowupPlan() {
 
       <div className="flex-1 flex flex-col bg-gray-50">
         <div className="px-6 pt-4">
-          <Tabs tabs={tabConfig} activeKey={activeTab} onChange={(k) => setActiveTab(k as TabKey)} />
+          <Tabs tabs={tabConfig} activeKey={activeTab} onChange={handleTabChange} />
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">

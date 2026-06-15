@@ -27,6 +27,8 @@ export default function Patients() {
     tagPresets,
   } = usePatientStore()
 
+  const followupPlans = useFollowupStore((s) => s.plans)
+
   const [showModal, setShowModal] = useState(false)
   const [formName, setFormName] = useState('')
   const [formGender, setFormGender] = useState('male')
@@ -82,16 +84,30 @@ export default function Patients() {
     setFormTags([])
   }
 
-  const getNextFollowupDate = (patientId: string) => {
-    const { plans } = useFollowupStore.getState()
-    const patientPlans = plans.filter((p) => p.patientId === patientId && p.status === 'active')
-    if (patientPlans.length > 0) {
-      const nextDates = patientPlans
-        .map((p) => new Date(p.nextDate).getTime())
-        .sort((a, b) => a - b)
-      return formatDate(new Date(nextDates[0]).toISOString())
+  const getFollowupInfo = (patientId: string) => {
+    const patientPlans = followupPlans.filter((p) => p.patientId === patientId)
+    if (patientPlans.length === 0) return { date: '暂无', status: 'none' as const }
+
+    const activePlans = patientPlans.filter((p) => p.status === 'active' || p.status === 'delayed')
+    if (activePlans.length > 0) {
+      const sorted = activePlans.sort((a, b) => new Date(a.nextDate).getTime() - new Date(b.nextDate).getTime())
+      return {
+        date: formatDate(new Date(sorted[0].nextDate).toISOString()),
+        status: sorted[0].status as 'active' | 'delayed',
+      }
     }
-    return '暂无'
+
+    const completed = patientPlans.find((p) => p.status === 'completed')
+    if (completed) {
+      return { date: '已完成', status: 'completed' as const }
+    }
+
+    const cancelled = patientPlans.find((p) => p.status === 'cancelled')
+    if (cancelled) {
+      return { date: '已取消', status: 'cancelled' as const }
+    }
+
+    return { date: '暂无', status: 'none' as const }
   }
 
   return (
@@ -152,7 +168,7 @@ export default function Patients() {
                 key={patient.id}
                 patient={patient}
                 abnormalCount={getAbnormalCount(patient.id)}
-                lastFollowupDate={getNextFollowupDate(patient.id)}
+                followupInfo={getFollowupInfo(patient.id)}
                 onClick={() => navigate(`/overview/${patient.id}`)}
               />
             ))}

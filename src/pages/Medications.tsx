@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { Card } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 
 const quickLinks = [
   { label: '时间线', icon: Clock, path: 'timeline' },
@@ -72,6 +73,8 @@ const periodLabels: Record<string, string> = {
 
 export default function Medications() {
   const { patientId } = useParams<{ patientId: string }>();
+  const [searchParams] = useSearchParams();
+  const prescriptionIdFromUrl = searchParams.get('prescriptionId');
   const navigate = useNavigate();
   const { patient } = usePatient(patientId || '');
   const getMedicationsByPatient = useMedicationStore((s) => s.getMedicationsByPatient);
@@ -84,6 +87,14 @@ export default function Medications() {
   const doctors = usePatientStore((s) => s.doctors);
 
   const [activeTab, setActiveTab] = useState('list');
+  const [selectedPrescriptionId, setSelectedPrescriptionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (prescriptionIdFromUrl) {
+      setActiveTab('prescriptions');
+      setSelectedPrescriptionId(prescriptionIdFromUrl);
+    }
+  }, [prescriptionIdFromUrl]);
 
   if (!patient) {
     return (
@@ -316,7 +327,13 @@ export default function Medications() {
                         <div className="absolute left-0 top-1 h-6 w-6 rounded-full bg-[#0A6EBD]/10 flex items-center justify-center">
                           <div className="h-2 w-2 rounded-full bg-[#0A6EBD]" />
                         </div>
-                        <Card>
+                        <Card
+                          className={cn(
+                            'cursor-pointer transition-shadow',
+                            prescriptionIdFromUrl === prescription.id && 'ring-2 ring-[#0A6EBD] shadow-md'
+                          )}
+                          onClick={() => setSelectedPrescriptionId(prescription.id)}
+                        >
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold text-gray-900">
@@ -370,6 +387,67 @@ export default function Medications() {
           )}
         </div>
       </main>
+
+      <Modal
+        isOpen={!!selectedPrescriptionId}
+        onClose={() => setSelectedPrescriptionId(null)}
+        title="处方详情"
+        size="lg"
+      >
+        {(() => {
+          const p = prescriptions.find((x) => x.id === selectedPrescriptionId)
+          const doctor = p ? doctors.find((d) => d.id === p.doctorId) : null
+          if (!p) return null
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Badge variant="primary">处方</Badge>
+                  <span className="text-sm font-medium text-gray-900">
+                    {formatDate(p.createdAt)}
+                  </span>
+                </div>
+                {doctor && (
+                  <span className="text-sm text-gray-500">
+                    {doctor.name} · {doctor.title}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium text-gray-700">药品明细</h4>
+                <div className="rounded-lg border border-gray-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-medium text-gray-500">药品</th>
+                        <th className="px-4 py-2 text-left font-medium text-gray-500">剂量</th>
+                        <th className="px-4 py-2 text-left font-medium text-gray-500">用法</th>
+                        <th className="px-4 py-2 text-left font-medium text-gray-500">疗程</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {p.items.map((item, i) => (
+                        <tr key={i} className="border-t border-gray-100">
+                          <td className="px-4 py-2 text-gray-900">{item.medicationName}</td>
+                          <td className="px-4 py-2 text-gray-700">{item.dosage}</td>
+                          <td className="px-4 py-2 text-gray-700">{item.usage}</td>
+                          <td className="px-4 py-2 text-gray-700">{item.duration}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              {p.notes && (
+                <div className="p-3 rounded-lg bg-gray-50 border border-gray-100">
+                  <p className="text-xs font-medium text-gray-500 mb-1">医嘱</p>
+                  <p className="text-sm text-gray-700">{p.notes}</p>
+                </div>
+              )}
+            </div>
+          )
+        })()}
+      </Modal>
     </div>
   );
 }

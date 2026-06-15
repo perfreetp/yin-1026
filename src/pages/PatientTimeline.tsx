@@ -31,10 +31,12 @@ interface TimelineEvent {
   title: string
   description: string
   date: string
+  displayDate?: string
   link: string
   status?: string
   statusVariant?: 'success' | 'warning' | 'primary' | 'danger' | 'default'
   isFuture?: boolean
+  hasDate?: boolean
 }
 
 const eventConfig: Record<TimelineEventType, { icon: React.ElementType; color: string; label: string }> = {
@@ -95,12 +97,19 @@ export default function PatientTimeline() {
     consultations.forEach((c) => {
       const doctor = doctors.find((d) => d.id === c.doctorId)
       const statusInfo = consultationStatusMap[c.status]
+      const hasValidDate = c.startedAt && !isNaN(new Date(c.startedAt).getTime())
+      const displayDate = hasValidDate ? c.startedAt : ''
+      const sortDate = hasValidDate
+        ? c.startedAt
+        : new Date(Date.now() + 86400000 * 365).toISOString()
       events.push({
         id: c.id,
         type: 'consultation',
         title: `${c.type === 'video' ? '视频' : '文字'}问诊`,
         description: `${doctor?.name || '医生'} · ${statusInfo?.label || c.status}`,
-        date: c.startedAt,
+        date: sortDate,
+        displayDate,
+        hasDate: hasValidDate,
         link: `/consultation/${patientId}?consultationId=${c.id}`,
         status: statusInfo?.label,
         statusVariant: statusInfo?.variant,
@@ -184,6 +193,12 @@ export default function PatientTimeline() {
     return events.sort((a, b) => {
       if (a.isFuture && !b.isFuture) return -1
       if (!a.isFuture && b.isFuture) return 1
+      if (a.isFuture && b.isFuture) {
+        if (!a.hasDate && b.hasDate) return -1
+        if (a.hasDate && !b.hasDate) return 1
+        if (!a.hasDate && !b.hasDate) return 0
+        return new Date(a.date).getTime() - new Date(b.date).getTime()
+      }
       return new Date(b.date).getTime() - new Date(a.date).getTime()
     })
   }, [consultations, records, examinations, patientPrescriptions, referrals, followupPlans, doctors, patientId])
@@ -313,7 +328,7 @@ export default function PatientTimeline() {
                                     </Badge>
                                   )}
                                   <span className="text-xs font-medium text-[#0A6EBD]">
-                                    {formatDate(event.date)}
+                                    {event.hasDate !== false ? formatDate(event.date) : '待安排时间'}
                                   </span>
                                 </div>
                               </div>
@@ -378,7 +393,7 @@ export default function PatientTimeline() {
                                       </Badge>
                                     )}
                                     <span className="text-xs text-gray-400">
-                                      {formatDateTime(event.date)}
+                                      {event.hasDate !== false ? formatDateTime(event.date) : '—'}
                                     </span>
                                   </div>
                                 </div>

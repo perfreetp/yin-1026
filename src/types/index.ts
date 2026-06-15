@@ -175,6 +175,7 @@ export interface FeeRecord {
   amount: number;
   items: FeeItem[];
   status: 'pending' | 'confirmed' | 'disputed';
+  disputeReason?: string;
   createdAt: string;
 }
 

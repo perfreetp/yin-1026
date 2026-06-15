@@ -8,7 +8,10 @@ import { Badge } from "@/components/ui/Badge";
 interface PatientCardProps {
   patient: Patient;
   abnormalCount: number;
-  lastFollowupDate: string;
+  followupInfo: {
+    date: string;
+    status: 'none' | 'active' | 'delayed' | 'completed' | 'cancelled';
+  };
   onClick: () => void;
 }
 
@@ -23,9 +26,19 @@ function getAge(birthDate: string): number {
   return age;
 }
 
-export function PatientCard({ patient, abnormalCount, lastFollowupDate, onClick }: PatientCardProps) {
+export function PatientCard({ patient, abnormalCount, followupInfo, onClick }: PatientCardProps) {
   const age = getAge(patient.birthDate);
   const genderLabel = patient.gender === "male" ? "男" : "女";
+
+  const statusConfig: Record<string, { label: string; variant: 'primary' | 'success' | 'warning' | 'danger' | 'default' }> = {
+    active: { label: '待复诊', variant: 'primary' },
+    delayed: { label: '已延期', variant: 'warning' },
+    completed: { label: '已完成', variant: 'success' },
+    cancelled: { label: '已取消', variant: 'danger' },
+    none: { label: '未安排', variant: 'default' },
+  };
+
+  const status = statusConfig[followupInfo.status] || statusConfig.none;
 
   return (
     <div
@@ -56,7 +69,13 @@ export function PatientCard({ patient, abnormalCount, lastFollowupDate, onClick 
           <AlertTriangle className={cn("h-4 w-4", abnormalCount > 0 ? "text-red-500" : "text-green-500")} />
           <span>{abnormalCount > 0 ? `${abnormalCount}项异常` : "正常"}</span>
         </div>
-        <span className="text-xs text-gray-400">下次随访: {lastFollowupDate}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-gray-400">下次随访:</span>
+          <Badge variant={status.variant} className="text-[10px] px-1.5 py-0">
+            {status.label}
+          </Badge>
+          <span className="text-xs text-gray-500">{followupInfo.date}</span>
+        </div>
       </div>
     </div>
   );

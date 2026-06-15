@@ -298,7 +298,10 @@ export default function PatientOverview() {
         </div>
 
         <div className="px-6 pb-6 space-y-5">
-          <Card className={cn('border', risk.color)}>
+          <Card
+            className={cn('border cursor-pointer hover:shadow-md transition-shadow', risk.color)}
+            onClick={() => navigate(`/followup/${patientId}?tab=alert`)}
+          >
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
@@ -313,13 +316,10 @@ export default function PatientOverview() {
                   ))}
                 </div>
               </div>
-              <Link
-                to={`/followup/${patientId}`}
-                className="flex items-center gap-1 text-xs font-medium hover:underline shrink-0"
-              >
+              <div className="flex items-center gap-1 text-xs font-medium shrink-0">
                 查看预警
                 <ArrowRight className="h-3 w-3" />
-              </Link>
+              </div>
             </div>
           </Card>
 

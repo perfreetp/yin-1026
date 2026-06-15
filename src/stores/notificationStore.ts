@@ -11,6 +11,7 @@ interface NotificationState {
   markAllAsRead: () => void;
   addNotification: (notification: Notification) => void;
   confirmFee: (id: string) => void;
+  disputeFee: (id: string, reason: string) => void;
   addRating: (rating: ServiceRating) => void;
   unreadCount: () => number;
 }
@@ -36,6 +37,10 @@ export const useNotificationStore = create<NotificationState>()(
       confirmFee: (id) =>
         set((state) => ({
           feeRecords: state.feeRecords.map((f) => (f.id === id ? { ...f, status: 'confirmed' as const } : f)),
+        })),
+      disputeFee: (id, reason) =>
+        set((state) => ({
+          feeRecords: state.feeRecords.map((f) => (f.id === id ? { ...f, status: 'disputed' as const, disputeReason: reason } : f)),
         })),
       addRating: (rating) =>
         set((state) => ({

@@ -103,7 +103,7 @@ export default function Messages() {
   const navigate = useNavigate()
   const urlPatientId = searchParams.get('patientId')
 
-  const { notifications, feeRecords, markAsRead, markAllAsRead, confirmFee, addRating, addNotification } = useNotificationStore()
+  const { notifications, feeRecords, markAsRead, markAllAsRead, confirmFee, disputeFee, addRating, addNotification } = useNotificationStore()
   const consultations = useConsultationStore((s) => s.consultations)
   const prescriptions = useConsultationStore((s) => s.prescriptions)
   const patients = usePatientStore((s) => s.patients)
@@ -122,6 +122,9 @@ export default function Messages() {
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
   const [targetReferralId, setTargetReferralId] = useState<string | null>(null)
+  const [showDisputeModal, setShowDisputeModal] = useState(false)
+  const [disputeReason, setDisputeReason] = useState('')
+  const [targetFeeId, setTargetFeeId] = useState<string | null>(null)
   const [showPlanModal, setShowPlanModal] = useState(false)
   const [planAction, setPlanAction] = useState<'complete' | 'delay' | 'cancel' | null>(null)
   const [targetPlanId, setTargetPlanId] = useState<string | null>(null)
@@ -278,6 +281,31 @@ export default function Messages() {
     setShowRejectModal(false)
     setTargetReferralId(null)
     setRejectReason('')
+  }
+
+  const handleOpenDispute = () => {
+    if (!relatedFeeRecord) return
+    setTargetFeeId(relatedFeeRecord.id)
+    setDisputeReason('')
+    setShowDisputeModal(true)
+  }
+
+  const handleConfirmDispute = () => {
+    if (!targetFeeId || !disputeReason.trim()) return
+    disputeFee(targetFeeId, disputeReason)
+    addNotification({
+      id: `notif-${Date.now()}`,
+      userId: selectedPatientId || '',
+      type: 'fee',
+      title: '费用异议处理中',
+      content: `您提出的费用异议已受理，原因：${disputeReason}，我们将尽快核实处理。`,
+      isRead: false,
+      relatedId: targetFeeId,
+      createdAt: new Date().toISOString(),
+    })
+    setShowDisputeModal(false)
+    setTargetFeeId(null)
+    setDisputeReason('')
   }
 
   const handleOpenPlanAction = (action: 'complete' | 'delay' | 'cancel') => {
@@ -545,7 +573,7 @@ export default function Messages() {
                           <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
                           确认费用
                         </Button>
-                        <Button variant="danger" size="sm">
+                        <Button variant="danger" size="sm" onClick={handleOpenDispute}>
                           <XCircle className="h-3.5 w-3.5 mr-1" />
                           异议申诉
                         </Button>
@@ -558,7 +586,18 @@ export default function Messages() {
                       </p>
                     )}
                     {relatedFeeRecord.status === 'disputed' && (
-                      <p className="mt-3 text-sm text-orange-600">异议处理中</p>
+                      <div className="mt-3">
+                        <p className="text-sm text-orange-600 flex items-center gap-1 mb-2">
+                          <AlertTriangle className="h-4 w-4" />
+                          异议处理中
+                        </p>
+                        {relatedFeeRecord.disputeReason && (
+                          <div className="p-3 rounded-lg bg-orange-50 border border-orange-200 text-sm text-orange-700">
+                            <span className="font-medium">异议原因：</span>
+                            {relatedFeeRecord.disputeReason}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -931,6 +970,37 @@ export default function Messages() {
             onChange={(e) => setRejectReason(e.target.value)}
             placeholder="如：该患者情况无需专科..."
           />
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showDisputeModal}
+        onClose={() => setShowDisputeModal(false)}
+        title="费用异议申诉"
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowDisputeModal(false)}>取消</Button>
+            <Button variant="danger" onClick={handleConfirmDispute} disabled={!disputeReason.trim()}>
+              提交异议
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="p-3 rounded-lg bg-orange-50 border border-orange-200 text-orange-700 text-sm">
+            提交异议后将进入人工审核流程，请详细说明异议原因。
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">异议原因</label>
+            <textarea
+              value={disputeReason}
+              onChange={(e) => setDisputeReason(e.target.value)}
+              placeholder="请详细描述费用异议的原因，例如收费项目不符、金额有误等..."
+              rows={4}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20 resize-none"
+            />
+          </div>
         </div>
       </Modal>
 

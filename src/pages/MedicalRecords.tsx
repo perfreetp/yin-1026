@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useMemo, useEffect } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Download, FileText, Stethoscope, ClipboardList, Pill, CalendarCheck, Clock } from 'lucide-react'
 import { usePatient } from '@/hooks/usePatient'
 import { formatDate } from '@/utils/date'
@@ -20,11 +20,25 @@ const quickLinks = [
 
 export default function MedicalRecords() {
   const { patientId } = useParams<{ patientId: string }>()
+  const [searchParams] = useSearchParams()
+  const recordIdFromUrl = searchParams.get('recordId')
   const navigate = useNavigate()
   const { patient, records } = usePatient(patientId || '')
 
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null)
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' })
+
+  useEffect(() => {
+    if (recordIdFromUrl) {
+      setSelectedRecordId(recordIdFromUrl)
+      setTimeout(() => {
+        const el = document.getElementById(`record-${recordIdFromUrl}`)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }, 100)
+    }
+  }, [recordIdFromUrl])
 
   const filteredRecords = useMemo(() => {
     let result = [...records]
@@ -128,13 +142,16 @@ export default function MedicalRecords() {
 
             <div className="space-y-6">
               {filteredRecords.map((record) => (
-                <div key={record.id} className="relative flex gap-6 pl-8">
+                <div key={record.id} id={`record-${record.id}`} className="relative flex gap-6 pl-8">
                   <div className="absolute left-0 top-2 -translate-x-1/2 w-3 h-3 rounded-full bg-[#0A6EBD] ring-4 ring-[#0A6EBD]/10" />
 
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-400 mb-1.5">{formatDate(record.createdAt)}</p>
                     <Card
-                      className="hover:shadow-md transition-shadow"
+                      className={cn(
+                        'hover:shadow-md transition-shadow',
+                        recordIdFromUrl === record.id && 'ring-2 ring-[#0A6EBD] shadow-md'
+                      )}
                       onClick={() => setSelectedRecordId(record.id)}
                     >
                       <h3 className="font-semibold text-gray-900 mb-2">{record.diagnosis}</h3>

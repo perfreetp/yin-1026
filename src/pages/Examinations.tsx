@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Upload,
@@ -64,6 +64,8 @@ const quickLinks = [
 
 export default function Examinations() {
   const { patientId } = useParams<{ patientId: string }>();
+  const [searchParams] = useSearchParams();
+  const examIdFromUrl = searchParams.get('examId');
   const navigate = useNavigate();
   const { patient, examinations, indicators } = usePatient(patientId || '');
   const addExamination = usePatientStore((s) => s.addExamination);
@@ -92,6 +94,13 @@ export default function Examinations() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (examIdFromUrl) {
+      setSelectedExamId(examIdFromUrl);
+      setShowDetailModal(true);
+    }
+  }, [examIdFromUrl]);
 
   if (!patient) {
     return (

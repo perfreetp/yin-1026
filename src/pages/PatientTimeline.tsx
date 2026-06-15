@@ -1,0 +1,273 @@
+import { useMemo } from 'react'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import {
+  ArrowLeft,
+  Video,
+  FileText,
+  ClipboardList,
+  Pill,
+  ArrowRightLeft,
+  Calendar,
+  Stethoscope,
+  Clock,
+} from 'lucide-react'
+import { usePatient } from '@/hooks/usePatient'
+import { useConsultationStore } from '@/stores/consultationStore'
+import { usePatientStore } from '@/stores/patientStore'
+import { formatDate, formatDateTime } from '@/utils/date'
+import { formatGender, getTagColor } from '@/utils/format'
+import { getAge } from '@/utils/date'
+import { Avatar } from '@/components/ui/Avatar'
+import { Badge } from '@/components/ui/Badge'
+import { cn } from '@/lib/utils'
+
+type TimelineEventType = 'consultation' | 'record' | 'examination' | 'prescription' | 'referral' | 'followup'
+
+interface TimelineEvent {
+  id: string
+  type: TimelineEventType
+  title: string
+  description: string
+  date: string
+  link: string
+}
+
+const eventConfig: Record<TimelineEventType, { icon: React.ElementType; color: string; label: string }> = {
+  consultation: { icon: Video, color: 'bg-green-500', label: '问诊' },
+  record: { icon: FileText, color: 'bg-blue-500', label: '病历' },
+  examination: { icon: ClipboardList, color: 'bg-purple-500', label: '检查' },
+  prescription: { icon: Pill, color: 'bg-orange-500', label: '处方' },
+  referral: { icon: ArrowRightLeft, color: 'bg-pink-500', label: '转诊' },
+  followup: { icon: Calendar, color: 'bg-teal-500', label: '随访' },
+}
+
+const navLinks = [
+  { label: '问诊室', path: '/consultation', icon: Stethoscope },
+  { label: '病历', path: '/records', icon: FileText },
+  { label: '检查资料', path: '/examinations', icon: ClipboardList },
+  { label: '用药', path: '/medications', icon: Pill },
+  { label: '随访计划', path: '/followup', icon: Calendar },
+]
+
+export default function PatientTimeline() {
+  const { patientId } = useParams<{ patientId: string }>()
+  const navigate = useNavigate()
+  const { patient, records, examinations, consultations, followupPlans, referrals } = usePatient(patientId || '')
+  const prescriptions = useConsultationStore((s) => s.prescriptions)
+  const doctors = usePatientStore((s) => s.doctors)
+
+  const patientPrescriptions = useMemo(
+    () => prescriptions.filter((p) => p.patientId === patientId),
+    [prescriptions, patientId]
+  )
+
+  const timelineEvents = useMemo(() => {
+    const events: TimelineEvent[] = []
+
+    consultations.forEach((c) => {
+      const doctor = doctors.find((d) => d.id === c.doctorId)
+      events.push({
+        id: c.id,
+        type: 'consultation',
+        title: `${c.type === 'video' ? '视频' : '文字'}问诊`,
+        description: `${doctor?.name || '医生'} · ${c.status === 'active' ? '进行中' : c.status === 'waiting' ? '等待中' : '已结束'}`,
+        date: c.startedAt,
+        link: `/consultation/${patientId}`,
+      })
+    })
+
+    records.forEach((r) => {
+      events.push({
+        id: r.id,
+        type: 'record',
+        title: r.diagnosis,
+        description: r.chiefComplaint,
+        date: r.createdAt,
+        link: `/records/${patientId}`,
+      })
+    })
+
+    examinations.forEach((e) => {
+      events.push({
+        id: e.id,
+        type: 'examination',
+        title: e.name,
+        description: e.isAbnormal ? '⚠ 结果异常' : e.notes || '检查完成',
+        date: e.createdAt,
+        link: `/examinations/${patientId}`,
+      })
+    })
+
+    patientPrescriptions.forEach((p) => {
+      const doctor = doctors.find((d) => d.id === p.doctorId)
+      const medNames = p.items.map((i) => i.medicationName).join('、')
+      events.push({
+        id: p.id,
+        type: 'prescription',
+        title: '开具处方',
+        description: `${doctor?.name || '医生'}：${medNames}`,
+        date: p.createdAt,
+        link: `/medications/${patientId}`,
+      })
+    })
+
+    referrals.forEach((r) => {
+      const toDoctor = doctors.find((d) => d.id === r.toDoctorId)
+      events.push({
+        id: r.id,
+        type: 'referral',
+        title: '转诊',
+        description: `→ ${toDoctor?.name || '专科医生'}：${r.reason.slice(0, 30)}`,
+        date: r.createdAt,
+        link: `/consultation/${patientId}`,
+      })
+    })
+
+    followupPlans.forEach((p) => {
+      events.push({
+        id: p.id,
+        type: 'followup',
+        title: '随访计划',
+        description: `${p.frequency} · 下次：${formatDate(p.nextDate)}`,
+        date: p.nextDate,
+        link: `/followup/${patientId}`,
+      })
+    })
+
+    return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  }, [consultations, records, examinations, patientPrescriptions, referrals, followupPlans, doctors, patientId])
+
+  const groupedEvents = useMemo(() => {
+    const groups: Record<string, TimelineEvent[]> = {}
+    timelineEvents.forEach((event) => {
+      const dateKey = formatDate(event.date)
+      if (!groups[dateKey]) groups[dateKey] = []
+      groups[dateKey].push(event)
+    })
+    return groups
+  }, [timelineEvents])
+
+  if (!patient) {
+    return (
+      <div className="flex h-full items-center justify-center text-gray-500">
+        患者信息不存在
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-[calc(100vh-7rem)] gap-0 rounded-xl overflow-hidden border border-gray-200 bg-white">
+      <div className="w-64 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-4">
+        <button
+          onClick={() => navigate('/patients')}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          返回患者列表
+        </button>
+
+        <div className="flex items-center gap-3">
+          <Avatar src={patient.avatar} name={patient.name} size="lg" />
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-semibold text-gray-900">{patient.name}</span>
+            <span className="text-xs text-gray-500">
+              {formatGender(patient.gender)} · {getAge(patient.birthDate)}岁
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {patient.tags.map((tag) => (
+                <span key={tag} className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', getTagColor(tag))}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          {navLinks.map((link) => (
+            <Link
+              key={link.label}
+              to={`${link.path}/${patientId}`}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+            >
+              <link.icon className="h-4 w-4" />
+              <span>{link.label}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col bg-gray-50 overflow-y-auto">
+        <div className="px-6 pt-4 pb-2">
+          <div className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-[#0A6EBD]" />
+            <h2 className="text-lg font-semibold text-gray-900">全程时间线</h2>
+          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            汇总 {patient.name} 的问诊、病历、检查、处方、转诊、随访记录
+          </p>
+        </div>
+
+        <div className="flex-1 px-6 pb-6">
+          {timelineEvents.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+              <Clock className="h-12 w-12 mb-3" />
+              <span className="text-sm">暂无记录</span>
+            </div>
+          ) : (
+            <div className="relative ml-4">
+              <div className="absolute left-[11px] top-2 bottom-2 w-px bg-gray-200" />
+              {Object.entries(groupedEvents).map(([dateKey, events]) => (
+                <div key={dateKey} className="mb-6">
+                  <div className="sticky top-0 z-10 bg-gray-50 py-1">
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      {dateKey}
+                    </span>
+                  </div>
+                  <div className="space-y-4 mt-2">
+                    {events.map((event) => {
+                      const config = eventConfig[event.type]
+                      const Icon = config.icon
+                      return (
+                        <Link
+                          key={event.id}
+                          to={event.link}
+                          className="relative flex gap-4 pl-8 group"
+                        >
+                          <div className={cn(
+                            'absolute left-0 top-1 h-6 w-6 rounded-full flex items-center justify-center',
+                            config.color
+                          )}>
+                            <Icon className="h-3 w-3 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0 rounded-xl border border-gray-100 bg-white p-4 shadow-sm group-hover:shadow-md group-hover:border-gray-200 transition-all">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Badge variant="primary" className="shrink-0">
+                                  {config.label}
+                                </Badge>
+                                <span className="text-sm font-medium text-gray-900 truncate">
+                                  {event.title}
+                                </span>
+                              </div>
+                              <span className="text-xs text-gray-400 shrink-0">
+                                {formatDateTime(event.date)}
+                              </span>
+                            </div>
+                            <p className="mt-1.5 text-sm text-gray-500 truncate">
+                              {event.description}
+                            </p>
+                          </div>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

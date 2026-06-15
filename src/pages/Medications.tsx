@@ -24,6 +24,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Card } from '@/components/ui/Card';
 
 const quickLinks = [
+  { label: '时间线', icon: Clock, path: 'timeline' },
   { label: '问诊室', icon: Stethoscope, path: 'consultation' },
   { label: '病历', icon: FileText, path: 'records' },
   { label: '检查资料', icon: ClipboardList, path: 'examinations' },

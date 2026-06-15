@@ -102,6 +102,8 @@ export interface FollowupPlan {
   nextDate: string;
   frequency: string;
   status: 'active' | 'completed' | 'paused';
+  notes?: string;
+  reminderTime?: string;
 }
 
 export interface Question {

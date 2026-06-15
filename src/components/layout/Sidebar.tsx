@@ -1,4 +1,4 @@
-import { useLocation, Link } from "react-router-dom"
+import { useLocation, Link, useNavigate } from "react-router-dom"
 import {
   Stethoscope,
   Users,
@@ -8,12 +8,15 @@ import {
   Pill,
   Calendar,
   Bell,
+  Clock,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useNotificationStore } from "@/stores/notificationStore"
+import { usePatientStore } from "@/stores/patientStore"
 
 const navItems = [
   { label: "患者列表", icon: Users, path: "/patients", exact: true },
+  { label: "时间线", icon: Clock, path: "/timeline", exact: false },
   { label: "问诊室", icon: Video, path: "/consultation", exact: false },
   { label: "病历", icon: FileText, path: "/records", exact: false },
   { label: "检查资料", icon: ClipboardList, path: "/examinations", exact: false },
@@ -24,11 +27,21 @@ const navItems = [
 
 export function Sidebar() {
   const location = useLocation()
+  const navigate = useNavigate()
   const unreadCount = useNotificationStore((s) => s.unreadCount())
+  const selectedPatientId = usePatientStore((s) => s.selectedPatientId)
 
   const isActive = (path: string, exact: boolean) => {
     if (exact) return location.pathname === path
     return location.pathname.startsWith(path)
+  }
+
+  const handleNavClick = (item: typeof navItems[number], e: React.MouseEvent) => {
+    if (item.exact) return
+    if (!selectedPatientId) {
+      e.preventDefault()
+      navigate("/patients")
+    }
   }
 
   return (
@@ -41,12 +54,16 @@ export function Sidebar() {
       <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const active = isActive(item.path, item.exact)
+          const targetPath = !item.exact && selectedPatientId
+            ? `${item.path}/${selectedPatientId}`
+            : item.exact
+              ? item.path
+              : "/patients"
           return (
             <Link
               key={item.label}
-              to={item.label === "问诊室" || item.label === "病历" || item.label === "检查资料" || item.label === "用药" || item.label === "随访计划"
-                ? "/patients"
-                : item.path}
+              to={targetPath}
+              onClick={(e) => handleNavClick(item, e)}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 active

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Download, FileText, Stethoscope, ClipboardList, Pill, CalendarCheck } from 'lucide-react'
+import { ArrowLeft, Download, FileText, Stethoscope, ClipboardList, Pill, CalendarCheck, Clock } from 'lucide-react'
 import { usePatient } from '@/hooks/usePatient'
 import { formatDate } from '@/utils/date'
 import { formatGender, getTagColor } from '@/utils/format'
@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
 
 const quickLinks = [
+  { label: '时间线', icon: Clock, path: '/timeline' },
   { label: '问诊室', icon: Stethoscope, path: '/consultation' },
   { label: '检查资料', icon: ClipboardList, path: '/examinations' },
   { label: '用药', icon: Pill, path: '/medications' },

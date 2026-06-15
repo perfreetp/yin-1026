@@ -15,6 +15,7 @@ import {
   Calendar,
   ArrowRightLeft,
   CheckCircle,
+  Clock,
 } from 'lucide-react'
 import { usePatient } from '@/hooks/usePatient'
 import { useConsultationStore } from '@/stores/consultationStore'
@@ -232,6 +233,7 @@ export default function Consultation() {
   }
 
   const navLinks = [
+    { label: '时间线', path: `/timeline/${patientId}`, icon: Clock },
     { label: '病历', path: `/records/${patientId}`, icon: FileText },
     { label: '检查资料', path: `/examinations/${patientId}`, icon: ClipboardList },
     { label: '用药', path: `/medications/${patientId}`, icon: Pill },

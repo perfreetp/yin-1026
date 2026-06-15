@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Bell,
@@ -9,12 +9,21 @@ import {
   AlertTriangle,
   CheckCheck,
   Mail,
+  User,
+  FileText,
+  ClipboardList,
+  Pill,
+  Calendar,
 } from 'lucide-react'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useConsultationStore } from '@/stores/consultationStore'
-import { formatRelativeTime, formatDateTime } from '@/utils/date'
+import { usePatientStore } from '@/stores/patientStore'
+import { useFollowupStore } from '@/stores/followupStore'
+import { useMedicationStore } from '@/stores/medicationStore'
+import { formatRelativeTime, formatDateTime, formatDate } from '@/utils/date'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
 import type { Notification } from '@/types'
 
@@ -70,15 +79,72 @@ const ratingTags = ['态度好', '专业', '耐心', '响应及时', '建议有�
 export default function Messages() {
   const { notifications, feeRecords, markAsRead, markAllAsRead, confirmFee, addRating } = useNotificationStore()
   const consultations = useConsultationStore((s) => s.consultations)
+  const prescriptions = useConsultationStore((s) => s.prescriptions)
+  const patients = usePatientStore((s) => s.patients)
+  const medicalRecords = usePatientStore((s) => s.medicalRecords)
+  const examinations = usePatientStore((s) => s.examinations)
+  const medications = useMedicationStore((s) => s.medications)
+  const followupPlans = useFollowupStore((s) => s.plans)
+  const referrals = usePatientStore((s) => s.referrals)
+
   const [activeTab, setActiveTab] = useState<TabKey>('all')
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [ratingForm, setRatingForm] = useState({ rating: 0, tags: [] as string[], comment: '' })
+  const [filterPatientId, setFilterPatientId] = useState<string>('')
 
-  const filteredNotifications = activeTab === 'all'
-    ? notifications
-    : notifications.filter((n) => n.type === activeTab)
+  const patientOptions = useMemo(() => {
+    const patientIds = new Set<string>()
+    notifications.forEach((n) => {
+      if (n.userId.startsWith('pat-')) patientIds.add(n.userId)
+    })
+    return patients
+      .filter((p) => patientIds.has(p.id))
+      .map((p) => ({ value: p.id, label: p.name }))
+  }, [notifications, patients])
+
+  const resolvePatientId = (notif: Notification): string | null => {
+    if (notif.userId.startsWith('pat-')) return notif.userId
+    if (notif.type === 'consultation' && notif.relatedId) {
+      const consultation = consultations.find((c) => c.id === notif.relatedId)
+      if (consultation) return consultation.patientId
+    }
+    if (notif.type === 'referral' && notif.relatedId) {
+      const referral = referrals.find((r) => r.id === notif.relatedId)
+      if (referral) return referral.patientId
+    }
+    if (notif.type === 'fee' && notif.relatedId) {
+      const fee = feeRecords.find((f) => f.id === notif.relatedId)
+      if (fee) return fee.patientId
+    }
+    return null
+  }
+
+  const filteredNotifications = useMemo(() => {
+    let result = notifications
+    if (activeTab !== 'all') {
+      result = result.filter((n) => n.type === activeTab)
+    }
+    if (filterPatientId) {
+      result = result.filter((n) => resolvePatientId(n) === filterPatientId)
+    }
+    return result
+  }, [notifications, activeTab, filterPatientId])
 
   const selectedMessage = notifications.find((n) => n.id === selectedMessageId) || null
+
+  const selectedPatientId = selectedMessage ? resolvePatientId(selectedMessage) : null
+  const selectedPatient = selectedPatientId ? patients.find((p) => p.id === selectedPatientId) : null
+
+  const relatedRecords = useMemo(() => {
+    if (!selectedPatientId) return null
+    return {
+      consultations: consultations.filter((c) => c.patientId === selectedPatientId).slice(0, 3),
+      records: medicalRecords.filter((r) => r.patientId === selectedPatientId).slice(0, 3),
+      examinations: examinations.filter((e) => e.patientId === selectedPatientId).slice(0, 3),
+      medications: medications.filter((m) => m.patientId === selectedPatientId && m.status === 'active').slice(0, 3),
+      plans: followupPlans.filter((p) => p.patientId === selectedPatientId && p.status === 'active').slice(0, 3),
+    }
+  }, [selectedPatientId, consultations, medicalRecords, examinations, medications, followupPlans])
 
   const relatedFeeRecord = selectedMessage?.type === 'fee' && selectedMessage.relatedId
     ? feeRecords.find((f) => f.id === selectedMessage.relatedId)
@@ -116,10 +182,22 @@ export default function Messages() {
     <div className="flex h-[calc(100vh-7rem)] flex-col rounded-xl border border-gray-200 bg-white overflow-hidden">
       <div className="flex items-center justify-between border-b border-gray-200 bg-white p-4">
         <h1 className="text-lg font-semibold text-gray-900">消息中心</h1>
-        <Button variant="ghost" size="sm" onClick={markAllAsRead}>
-          <CheckCheck className="h-4 w-4" />
-          全部已读
-        </Button>
+        <div className="flex items-center gap-3">
+          <select
+            value={filterPatientId}
+            onChange={(e) => setFilterPatientId(e.target.value)}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20"
+          >
+            <option value="">全部患者</option>
+            {patientOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <Button variant="ghost" size="sm" onClick={markAllAsRead}>
+            <CheckCheck className="h-4 w-4" />
+            全部已读
+          </Button>
+        </div>
       </div>
 
       <div className="flex border-b border-gray-200 bg-white">
@@ -152,6 +230,8 @@ export default function Messages() {
             filteredNotifications.map((notif) => {
               const Icon = typeIconMap[notif.type]
               const iconColor = typeIconColorMap[notif.type]
+              const notifPatientId = resolvePatientId(notif)
+              const notifPatient = notifPatientId ? patients.find((p) => p.id === notifPatientId) : null
               return (
                 <div
                   key={notif.id}
@@ -179,6 +259,12 @@ export default function Messages() {
                       </span>
                     </div>
                     <p className="mt-0.5 truncate text-sm text-gray-500">{notif.content}</p>
+                    {notifPatient && (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <User className="h-3 w-3 text-gray-400" />
+                        <span className="text-xs text-gray-400">{notifPatient.name}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -186,7 +272,7 @@ export default function Messages() {
           )}
         </div>
 
-        <div className="flex-1 bg-white overflow-y-auto p-6">
+        <div className="flex-1 bg-white overflow-y-auto">
           {!selectedMessage ? (
             <div className="flex h-full items-center justify-center text-gray-400">
               <div className="flex flex-col items-center gap-3">
@@ -195,158 +281,281 @@ export default function Messages() {
               </div>
             </div>
           ) : (
-            <div className="flex flex-col gap-4">
-              <h2 className="text-xl font-semibold text-gray-900">{selectedMessage.title}</h2>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-400">{formatDateTime(selectedMessage.createdAt)}</span>
-                <Badge variant={typeBadgeVariantMap[selectedMessage.type]}>
-                  {typeLabelMap[selectedMessage.type]}
-                </Badge>
-              </div>
-              <p className="text-sm text-gray-700 leading-relaxed">{selectedMessage.content}</p>
+            <div className="flex">
+              <div className="flex-1 p-6 flex flex-col gap-4">
+                <h2 className="text-xl font-semibold text-gray-900">{selectedMessage.title}</h2>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-400">{formatDateTime(selectedMessage.createdAt)}</span>
+                  <Badge variant={typeBadgeVariantMap[selectedMessage.type]}>
+                    {typeLabelMap[selectedMessage.type]}
+                  </Badge>
+                </div>
+                <p className="text-sm text-gray-700 leading-relaxed">{selectedMessage.content}</p>
 
-              {selectedMessage.type === 'fee' && relatedFeeRecord && (
-                <div className="mt-4 rounded-xl border border-gray-200 p-4">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">费用明细</h3>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-100 text-gray-500">
-                        <th className="py-2 text-left font-medium">项目</th>
-                        <th className="py-2 text-right font-medium">金额</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {relatedFeeRecord.items.map((item, i) => (
-                        <tr key={i} className="border-b border-gray-50">
-                          <td className="py-2 text-gray-700">{item.name}</td>
-                          <td className="py-2 text-right text-gray-700">¥{item.amount.toFixed(2)}</td>
+                {selectedPatient && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <Link
+                      to={`/timeline/${selectedPatient.id}`}
+                      className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 hover:bg-gray-100 transition-colors"
+                    >
+                      <Avatar src={selectedPatient.avatar} name={selectedPatient.name} size="sm" />
+                      <span className="text-sm font-medium text-gray-900">{selectedPatient.name}</span>
+                      <span className="text-xs text-gray-500">查看时间线 →</span>
+                    </Link>
+                  </div>
+                )}
+
+                {selectedMessage.type === 'fee' && relatedFeeRecord && (
+                  <div className="mt-4 rounded-xl border border-gray-200 p-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-3">费用明细</h3>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-100 text-gray-500">
+                          <th className="py-2 text-left font-medium">项目</th>
+                          <th className="py-2 text-right font-medium">金额</th>
                         </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t border-gray-200">
-                        <td className="py-2 font-semibold text-gray-900">合计</td>
-                        <td className="py-2 text-right font-semibold text-gray-900">¥{relatedFeeRecord.amount.toFixed(2)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                  {relatedFeeRecord.status === 'pending' && (
-                    <div className="mt-4 flex gap-3">
-                      <Button size="sm" onClick={() => confirmFee(relatedFeeRecord.id)}>确认费用</Button>
-                      <Button variant="danger" size="sm">异议申诉</Button>
-                    </div>
-                  )}
-                  {relatedFeeRecord.status === 'confirmed' && (
-                    <p className="mt-3 text-sm text-green-600">费用已确认</p>
-                  )}
-                  {relatedFeeRecord.status === 'disputed' && (
-                    <p className="mt-3 text-sm text-orange-600">异议处理中</p>
-                  )}
-                </div>
-              )}
-
-              {selectedMessage.type === 'rating' && (
-                <div className="mt-4 rounded-xl border border-gray-200 p-4">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">服务评价</h3>
-                  <div className="flex items-center gap-1 mb-4">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <button
-                        key={star}
-                        onClick={() => setRatingForm((prev) => ({ ...prev, rating: star }))}
-                        className="p-0.5 transition-colors"
-                      >
-                        <Star
-                          className={cn(
-                            'h-7 w-7',
-                            star <= ratingForm.rating
-                              ? 'fill-yellow-400 text-yellow-400'
-                              : 'text-gray-300'
-                          )}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {ratingTags.map((tag) => (
-                      <button
-                        key={tag}
-                        onClick={() => handleToggleTag(tag)}
-                        className={cn(
-                          'rounded-full px-3 py-1 text-xs font-medium transition-colors',
-                          ratingForm.tags.includes(tag)
-                            ? 'bg-[#0A6EBD] text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        )}
-                      >
-                        {tag}
-                      </button>
-                    ))}
-                  </div>
-                  <textarea
-                    value={ratingForm.comment}
-                    onChange={(e) => setRatingForm((prev) => ({ ...prev, comment: e.target.value }))}
-                    placeholder="请输入您的评价..."
-                    rows={3}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20 resize-none"
-                  />
-                  <div className="mt-3">
-                    <Button size="sm" onClick={handleSubmitRating} disabled={ratingForm.rating === 0}>
-                      提交评价
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {selectedMessage.type === 'referral' && selectedMessage.relatedId && (
-                <div className="mt-4 rounded-xl border border-gray-200 p-4">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">转诊状态</h3>
-                  <div className="flex flex-col gap-0">
-                    {[
-                      { label: '提交转诊', done: true },
-                      { label: '专科接收', done: ['accepted', 'completed'].includes(selectedMessage.content.includes('接受') ? 'accepted' : selectedMessage.content.includes('完成') ? 'completed' : '') },
-                      { label: '诊疗完成', done: selectedMessage.content.includes('完成') },
-                    ].map((step, i) => (
-                      <div key={i} className="flex items-start gap-3">
-                        <div className="flex flex-col items-center">
-                          <div className={cn(
-                            'h-3 w-3 rounded-full border-2',
-                            step.done ? 'bg-[#0A6EBD] border-[#0A6EBD]' : 'bg-white border-gray-300'
-                          )} />
-                          {i < 2 && <div className={cn('w-0.5 h-6', step.done ? 'bg-[#0A6EBD]' : 'bg-gray-200')} />}
-                        </div>
-                        <span className={cn('text-sm', step.done ? 'text-gray-900' : 'text-gray-400')}>
-                          {step.label}
-                        </span>
+                      </thead>
+                      <tbody>
+                        {relatedFeeRecord.items.map((item, i) => (
+                          <tr key={i} className="border-b border-gray-50">
+                            <td className="py-2 text-gray-700">{item.name}</td>
+                            <td className="py-2 text-right text-gray-700">¥{item.amount.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t border-gray-200">
+                          <td className="py-2 font-semibold text-gray-900">合计</td>
+                          <td className="py-2 text-right font-semibold text-gray-900">¥{relatedFeeRecord.amount.toFixed(2)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                    {relatedFeeRecord.status === 'pending' && (
+                      <div className="mt-4 flex gap-3">
+                        <Button size="sm" onClick={() => confirmFee(relatedFeeRecord.id)}>确认费用</Button>
+                        <Button variant="danger" size="sm">异议申诉</Button>
                       </div>
-                    ))}
+                    )}
+                    {relatedFeeRecord.status === 'confirmed' && (
+                      <p className="mt-3 text-sm text-green-600">费用已确认</p>
+                    )}
+                    {relatedFeeRecord.status === 'disputed' && (
+                      <p className="mt-3 text-sm text-orange-600">异议处理中</p>
+                    )}
                   </div>
-                </div>
-              )}
+                )}
 
-              {selectedMessage.type === 'alert' && (
-                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <h3 className="text-sm font-semibold text-red-700">异常指标提醒</h3>
-                      <p className="mt-1 text-sm text-red-600">{selectedMessage.content}</p>
-                      <p className="mt-2 text-xs text-red-400">请及时关注并安排就诊</p>
+                {selectedMessage.type === 'rating' && (
+                  <div className="mt-4 rounded-xl border border-gray-200 p-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-3">服务评价</h3>
+                    <div className="flex items-center gap-1 mb-4">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          onClick={() => setRatingForm((prev) => ({ ...prev, rating: star }))}
+                          className="p-0.5 transition-colors"
+                        >
+                          <Star
+                            className={cn(
+                              'h-7 w-7',
+                              star <= ratingForm.rating
+                                ? 'fill-yellow-400 text-yellow-400'
+                                : 'text-gray-300'
+                            )}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {ratingTags.map((tag) => (
+                        <button
+                          key={tag}
+                          onClick={() => handleToggleTag(tag)}
+                          className={cn(
+                            'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                            ratingForm.tags.includes(tag)
+                              ? 'bg-[#0A6EBD] text-white'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          )}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      value={ratingForm.comment}
+                      onChange={(e) => setRatingForm((prev) => ({ ...prev, comment: e.target.value }))}
+                      placeholder="请输入您的评价..."
+                      rows={3}
+                      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20 resize-none"
+                    />
+                    <div className="mt-3">
+                      <Button size="sm" onClick={handleSubmitRating} disabled={ratingForm.rating === 0}>
+                        提交评价
+                      </Button>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {selectedMessage.type === 'consultation' && selectedMessage.relatedId && (
-                <div className="mt-4">
-                  {(() => {
-                    const consultation = consultations.find((c) => c.id === selectedMessage.relatedId)
-                    const targetPatientId = consultation?.patientId || selectedMessage.relatedId
-                    return (
-                      <Link to={`/consultation/${targetPatientId}`}>
-                        <Button size="sm">进入问诊室</Button>
-                      </Link>
-                    )
-                  })()}
+                {selectedMessage.type === 'referral' && selectedMessage.relatedId && (
+                  <div className="mt-4 rounded-xl border border-gray-200 p-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-3">转诊状态</h3>
+                    <div className="flex flex-col gap-0">
+                      {[
+                        { label: '提交转诊', done: true },
+                        { label: '专科接收', done: ['accepted', 'completed'].includes(selectedMessage.content.includes('接受') ? 'accepted' : selectedMessage.content.includes('完成') ? 'completed' : '') },
+                        { label: '诊疗完成', done: selectedMessage.content.includes('完成') },
+                      ].map((step, i) => (
+                        <div key={i} className="flex items-start gap-3">
+                          <div className="flex flex-col items-center">
+                            <div className={cn(
+                              'h-3 w-3 rounded-full border-2',
+                              step.done ? 'bg-[#0A6EBD] border-[#0A6EBD]' : 'bg-white border-gray-300'
+                            )} />
+                            {i < 2 && <div className={cn('w-0.5 h-6', step.done ? 'bg-[#0A6EBD]' : 'bg-gray-200')} />}
+                          </div>
+                          <span className={cn('text-sm', step.done ? 'text-gray-900' : 'text-gray-400')}>
+                            {step.label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedMessage.type === 'alert' && (
+                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h3 className="text-sm font-semibold text-red-700">异常指标提醒</h3>
+                        <p className="mt-1 text-sm text-red-600">{selectedMessage.content}</p>
+                        <p className="mt-2 text-xs text-red-400">请及时关注并安排就诊</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {selectedMessage.type === 'consultation' && selectedMessage.relatedId && (
+                  <div className="mt-4">
+                    {(() => {
+                      const consultation = consultations.find((c) => c.id === selectedMessage.relatedId)
+                      const targetPatientId = consultation?.patientId || selectedMessage.relatedId
+                      return (
+                        <Link to={`/consultation/${targetPatientId}`}>
+                          <Button size="sm">进入问诊室</Button>
+                        </Link>
+                      )
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {selectedPatientId && relatedRecords && (
+                <div className="w-72 border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-4">
+                  <div className="flex items-center gap-2 mb-4">
+                    <FileText className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm font-semibold text-gray-700">关联记录</span>
+                  </div>
+
+                  {relatedRecords.consultations.length > 0 && (
+                    <div className="mb-4">
+                      <span className="text-xs font-medium text-gray-400">问诊记录</span>
+                      <div className="mt-1.5 flex flex-col gap-1.5">
+                        {relatedRecords.consultations.map((c) => (
+                          <Link
+                            key={c.id}
+                            to={`/consultation/${selectedPatientId}`}
+                            className="flex items-center gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm hover:border-[#0A6EBD]/30 transition-colors"
+                          >
+                            <Video className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            <span className="truncate text-gray-700">{c.type === 'video' ? '视频' : '文字'}问诊</span>
+                            <span className="ml-auto text-xs text-gray-400 shrink-0">{formatDate(c.startedAt)}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {relatedRecords.records.length > 0 && (
+                    <div className="mb-4">
+                      <span className="text-xs font-medium text-gray-400">病历记录</span>
+                      <div className="mt-1.5 flex flex-col gap-1.5">
+                        {relatedRecords.records.map((r) => (
+                          <Link
+                            key={r.id}
+                            to={`/records/${selectedPatientId}`}
+                            className="flex items-center gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm hover:border-[#0A6EBD]/30 transition-colors"
+                          >
+                            <FileText className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                            <span className="truncate text-gray-700">{r.diagnosis}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {relatedRecords.examinations.length > 0 && (
+                    <div className="mb-4">
+                      <span className="text-xs font-medium text-gray-400">检查资料</span>
+                      <div className="mt-1.5 flex flex-col gap-1.5">
+                        {relatedRecords.examinations.map((e) => (
+                          <Link
+                            key={e.id}
+                            to={`/examinations/${selectedPatientId}`}
+                            className="flex items-center gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm hover:border-[#0A6EBD]/30 transition-colors"
+                          >
+                            <ClipboardList className="h-3.5 w-3.5 text-purple-500 shrink-0" />
+                            <span className="truncate text-gray-700">{e.name}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {relatedRecords.medications.length > 0 && (
+                    <div className="mb-4">
+                      <span className="text-xs font-medium text-gray-400">当前用药</span>
+                      <div className="mt-1.5 flex flex-col gap-1.5">
+                        {relatedRecords.medications.map((m) => (
+                          <Link
+                            key={m.id}
+                            to={`/medications/${selectedPatientId}`}
+                            className="flex items-center gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm hover:border-[#0A6EBD]/30 transition-colors"
+                          >
+                            <Pill className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                            <span className="truncate text-gray-700">{m.name}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {relatedRecords.plans.length > 0 && (
+                    <div className="mb-4">
+                      <span className="text-xs font-medium text-gray-400">随访计划</span>
+                      <div className="mt-1.5 flex flex-col gap-1.5">
+                        {relatedRecords.plans.map((p) => (
+                          <Link
+                            key={p.id}
+                            to={`/followup/${selectedPatientId}`}
+                            className="flex items-center gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm hover:border-[#0A6EBD]/30 transition-colors"
+                          >
+                            <Calendar className="h-3.5 w-3.5 text-teal-500 shrink-0" />
+                            <span className="truncate text-gray-700">{formatDate(p.nextDate)}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {relatedRecords.consultations.length === 0 &&
+                   relatedRecords.records.length === 0 &&
+                   relatedRecords.examinations.length === 0 &&
+                   relatedRecords.medications.length === 0 &&
+                   relatedRecords.plans.length === 0 && (
+                    <p className="text-xs text-gray-400">暂无关联记录</p>
+                  )}
                 </div>
               )}
             </div>

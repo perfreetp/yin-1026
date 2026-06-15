@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { usePatientStore } from '@/stores/patientStore'
 import { useConsultationStore } from '@/stores/consultationStore'
 import { useMedicationStore } from '@/stores/medicationStore'
@@ -9,9 +10,16 @@ export function usePatient(patientId: string) {
   const examinations = usePatientStore((s) => s.examinations)
   const healthIndicators = usePatientStore((s) => s.healthIndicators)
   const referrals = usePatientStore((s) => s.referrals)
+  const selectPatient = usePatientStore((s) => s.selectPatient)
   const consultations = useConsultationStore((s) => s.consultations)
   const medications = useMedicationStore((s) => s.medications)
   const plans = useFollowupStore((s) => s.plans)
+
+  useEffect(() => {
+    if (patientId) {
+      selectPatient(patientId)
+    }
+  }, [patientId, selectPatient])
 
   const patient = patients.find((p) => p.id === patientId)
   const records = medicalRecords.filter((r) => r.patientId === patientId)

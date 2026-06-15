@@ -8,10 +8,13 @@ import {
   Star,
   Bookmark,
   MoreHorizontal,
-  User,
   FileText,
   Activity,
   ClipboardList,
+  Stethoscope,
+  Pill,
+  Calendar,
+  Clock,
 } from 'lucide-react';
 import { usePatient } from '@/hooks/usePatient';
 import { usePatientStore } from '@/stores/patientStore';
@@ -52,10 +55,11 @@ const typeOptions = [
 ];
 
 const quickLinks = [
-  { label: '基本信息', icon: User, path: 'basic' },
-  { label: '病历记录', icon: FileText, path: 'medical-records' },
-  { label: '检查资料', icon: ClipboardList, path: 'examinations' },
-  { label: '健康指标', icon: Activity, path: 'health-indicators' },
+  { label: '时间线', icon: Clock, path: '/timeline' },
+  { label: '问诊室', icon: Stethoscope, path: '/consultation' },
+  { label: '病历', icon: FileText, path: '/records' },
+  { label: '用药', icon: Pill, path: '/medications' },
+  { label: '随访计划', icon: Calendar, path: '/followup' },
 ];
 
 export default function Examinations() {
@@ -191,18 +195,11 @@ export default function Examinations() {
         <nav className="flex-1 px-2">
           {quickLinks.map((link) => {
             const Icon = link.icon;
-            const isActive = link.path === 'examinations';
             return (
               <button
                 key={link.path}
-                onClick={() => {
-                  if (!isActive) navigate(`/patient/${patientId}/${link.path}`);
-                }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors mb-0.5 ${
-                  isActive
-                    ? 'bg-[#0A6EBD]/10 text-[#0A6EBD] font-medium'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
+                onClick={() => navigate(`${link.path}/${patientId}`)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors mb-0.5 text-gray-600 hover:bg-gray-50"
               >
                 <Icon className="h-4 w-4" />
                 {link.label}

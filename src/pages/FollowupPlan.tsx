@@ -10,9 +10,12 @@ import {
   BookOpen,
   Stethoscope,
   Pill,
+  Clock,
+  Plus,
 } from 'lucide-react'
 import { usePatient } from '@/hooks/usePatient'
 import { useFollowupStore } from '@/stores/followupStore'
+import { useNotificationStore } from '@/stores/notificationStore'
 import { formatDate } from '@/utils/date'
 import { formatGender, getTagColor } from '@/utils/format'
 import { Avatar } from '@/components/ui/Avatar'
@@ -52,6 +55,7 @@ const tabConfig = [
 ]
 
 const navLinks = [
+  { label: '时间线', path: '/timeline', icon: Clock },
   { label: '问诊室', path: '/consultation', icon: Stethoscope },
   { label: '病历', path: '/records', icon: FileText },
   { label: '检查资料', path: '/examinations', icon: ClipboardList },
@@ -62,7 +66,8 @@ export default function FollowupPlan() {
   const { patientId } = useParams<{ patientId: string }>()
   const navigate = useNavigate()
   const { patient, followupPlans } = usePatient(patientId || '')
-  const { questionnaires, educationArticles, submitQuestionnaire, getQuestionnairesByPatient, getAbnormalIndicators, getIndicatorsByPatient, updatePlan } = useFollowupStore()
+  const { questionnaires, educationArticles, submitQuestionnaire, getQuestionnairesByPatient, getAbnormalIndicators, getIndicatorsByPatient, updatePlan, addPlan } = useFollowupStore()
+  const { addNotification } = useNotificationStore()
 
   const [activeTab, setActiveTab] = useState<TabKey>('plan')
   const [selectedQuestionnaireId, setSelectedQuestionnaireId] = useState<string | null>(null)
@@ -73,6 +78,13 @@ export default function FollowupPlan() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
   const [editingNextDate, setEditingNextDate] = useState('')
+  const [showNewPlanModal, setShowNewPlanModal] = useState(false)
+  const [newPlanForm, setNewPlanForm] = useState({
+    nextDate: '',
+    frequency: '每月一次',
+    notes: '',
+    reminderTime: '09:00',
+  })
 
   const patientQuestionnaires = useMemo(
     () => getQuestionnairesByPatient(patientId || ''),
@@ -200,6 +212,32 @@ export default function FollowupPlan() {
     setShowEditModal(false)
     setEditingPlanId(null)
     setEditingNextDate('')
+  }
+
+  const handleCreatePlan = () => {
+    if (!patientId || !newPlanForm.nextDate) return
+    const newPlan = {
+      id: `fp-${Date.now()}`,
+      patientId,
+      doctorId: 'doc-001',
+      nextDate: newPlanForm.nextDate,
+      frequency: newPlanForm.frequency,
+      status: 'active' as const,
+      notes: newPlanForm.notes,
+      reminderTime: newPlanForm.reminderTime,
+    }
+    addPlan(newPlan)
+    addNotification({
+      id: `notif-${Date.now()}`,
+      userId: patientId,
+      type: 'consultation',
+      title: '复诊提醒',
+      content: `您已预约${formatDate(newPlanForm.nextDate)}复诊，频率：${newPlanForm.frequency}${newPlanForm.notes ? '，备注：' + newPlanForm.notes : ''}`,
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    })
+    setShowNewPlanModal(false)
+    setNewPlanForm({ nextDate: '', frequency: '每月一次', notes: '', reminderTime: '09:00' })
   }
 
   const renderQuestionInput = (question: typeof selectedQuestionnaire extends null ? never : NonNullable<typeof selectedQuestionnaire>['questions'][number]) => {
@@ -335,11 +373,18 @@ export default function FollowupPlan() {
         <div className="flex-1 overflow-y-auto p-6">
           {activeTab === 'plan' && (
             <div className="flex flex-col gap-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-900">复诊安排</h3>
+                <Button variant="primary" size="sm" onClick={() => setShowNewPlanModal(true)}>
+                  <Plus className="h-4 w-4" />
+                  新建复诊安排
+                </Button>
+              </div>
               <div className="flex flex-col gap-4">
                 {followupPlans.map((plan) => (
                   <Card key={plan.id}>
                     <div className="flex items-start justify-between">
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2 flex-1">
                         <div className="flex items-center gap-2">
                           <Calendar className="h-4 w-4 text-[#0A6EBD]" />
                           <span className="text-sm font-semibold text-gray-900">
@@ -349,6 +394,16 @@ export default function FollowupPlan() {
                         <div className="flex items-center gap-2 text-sm text-gray-500">
                           <span>下次随访：{formatDate(plan.nextDate)}</span>
                         </div>
+                        {plan.notes && (
+                          <div className="text-sm text-gray-500">
+                            备注：{plan.notes}
+                          </div>
+                        )}
+                        {plan.reminderTime && (
+                          <div className="text-sm text-gray-500">
+                            提醒时间：{plan.reminderTime}
+                          </div>
+                        )}
                         <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 p-3">
                           <div className="flex items-center justify-between">
                             <div>
@@ -633,6 +688,63 @@ export default function FollowupPlan() {
               value={editingNextDate}
               onChange={(e) => setEditingNextDate(e.target.value)}
               className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showNewPlanModal}
+        onClose={() => setShowNewPlanModal(false)}
+        title="新建复诊安排"
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowNewPlanModal(false)}>取消</Button>
+            <Button variant="primary" onClick={handleCreatePlan} disabled={!newPlanForm.nextDate}>保存</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">下次复诊日期</label>
+            <input
+              type="date"
+              value={newPlanForm.nextDate}
+              onChange={(e) => setNewPlanForm((prev) => ({ ...prev, nextDate: e.target.value }))}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20"
+            />
+          </div>
+          <Select
+            label="随访频率"
+            value={newPlanForm.frequency}
+            onChange={(e) => setNewPlanForm((prev) => ({ ...prev, frequency: e.target.value }))}
+            options={[
+              { value: '每周一次', label: '每周一次' },
+              { value: '每两周一次', label: '每两周一次' },
+              { value: '每月一次', label: '每月一次' },
+              { value: '每季度一次', label: '每季度一次' },
+              { value: '每半年一次', label: '每半年一次' },
+              { value: '每年一次', label: '每年一次' },
+            ]}
+          />
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">提醒时间</label>
+            <input
+              type="time"
+              value={newPlanForm.reminderTime}
+              onChange={(e) => setNewPlanForm((prev) => ({ ...prev, reminderTime: e.target.value }))}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">备注</label>
+            <textarea
+              value={newPlanForm.notes}
+              onChange={(e) => setNewPlanForm((prev) => ({ ...prev, notes: e.target.value }))}
+              placeholder="复诊注意事项..."
+              rows={3}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20 resize-none"
             />
           </div>
         </div>

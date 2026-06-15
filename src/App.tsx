@@ -7,6 +7,7 @@ import Examinations from '@/pages/Examinations'
 import Medications from '@/pages/Medications'
 import FollowupPlan from '@/pages/FollowupPlan'
 import Messages from '@/pages/Messages'
+import PatientTimeline from '@/pages/PatientTimeline'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/" element={<Navigate to="/patients" replace />} />
           <Route path="/patients" element={<Patients />} />
+          <Route path="/timeline/:patientId" element={<PatientTimeline />} />
           <Route path="/consultation/:patientId" element={<Consultation />} />
           <Route path="/records/:patientId" element={<MedicalRecords />} />
           <Route path="/examinations/:patientId" element={<Examinations />} />

@@ -56,7 +56,7 @@ export const useMedicationStore = create<MedicationState>()(
         const patientMeds = get().medications.filter((m) => m.patientId === patientId && m.status === 'active')
         const medNames = patientMeds.map((m) => m.name)
         return get().drugInteractions.filter(
-          (i) => medNames.includes(i.drug1) && medNames.includes(i.drug2)
+          (i) => medNames.some((name) => name.includes(i.drug1)) && medNames.some((name) => name.includes(i.drug2))
         )
       },
     }),

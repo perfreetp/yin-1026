@@ -62,7 +62,7 @@ export default function FollowupPlan() {
   const { patientId } = useParams<{ patientId: string }>()
   const navigate = useNavigate()
   const { patient, followupPlans } = usePatient(patientId || '')
-  const { questionnaires, educationArticles, submitQuestionnaire, getQuestionnairesByPatient, getAbnormalIndicators, getIndicatorsByPatient } = useFollowupStore()
+  const { questionnaires, educationArticles, submitQuestionnaire, getQuestionnairesByPatient, getAbnormalIndicators, getIndicatorsByPatient, updatePlan } = useFollowupStore()
 
   const [activeTab, setActiveTab] = useState<TabKey>('plan')
   const [selectedQuestionnaireId, setSelectedQuestionnaireId] = useState<string | null>(null)
@@ -70,6 +70,9 @@ export default function FollowupPlan() {
   const [questionnaireAnswers, setQuestionnaireAnswers] = useState<Answer[]>([])
   const [selectedIndicator, setSelectedIndicator] = useState<string>('')
   const [thresholds, setThresholds] = useState<Record<string, { upper: number; lower: number }>>({})
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
+  const [editingNextDate, setEditingNextDate] = useState('')
 
   const patientQuestionnaires = useMemo(
     () => getQuestionnairesByPatient(patientId || ''),
@@ -183,6 +186,20 @@ export default function FollowupPlan() {
       ...prev,
       [indicatorName]: { ...prev[indicatorName], [field]: numVal },
     }))
+  }
+
+  const handleOpenEditModal = (planId: string, currentDate: string) => {
+    setEditingPlanId(planId)
+    setEditingNextDate(currentDate.slice(0, 10))
+    setShowEditModal(true)
+  }
+
+  const handleSaveNextDate = () => {
+    if (!editingPlanId || !editingNextDate) return
+    updatePlan(editingPlanId, { nextDate: editingNextDate })
+    setShowEditModal(false)
+    setEditingPlanId(null)
+    setEditingNextDate('')
   }
 
   const renderQuestionInput = (question: typeof selectedQuestionnaire extends null ? never : NonNullable<typeof selectedQuestionnaire>['questions'][number]) => {
@@ -333,10 +350,21 @@ export default function FollowupPlan() {
                           <span>下次随访：{formatDate(plan.nextDate)}</span>
                         </div>
                         <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 p-3">
-                          <span className="text-xs font-medium text-blue-700">预约复诊</span>
-                          <p className="text-sm text-blue-900 mt-1">
-                            预约日期：{formatDate(plan.nextDate)}
-                          </p>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-xs font-medium text-blue-700">预约复诊</span>
+                              <p className="text-sm text-blue-900 mt-1">
+                                预约日期：{formatDate(plan.nextDate)}
+                              </p>
+                            </div>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={() => handleOpenEditModal(plan.id, plan.nextDate)}
+                            >
+                              调整预约
+                            </Button>
+                          </div>
                         </div>
                       </div>
                       <Badge variant={planStatusMap[plan.status]?.variant || 'default'}>
@@ -583,6 +611,31 @@ export default function FollowupPlan() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="调整预约复诊时间"
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowEditModal(false)}>取消</Button>
+            <Button variant="primary" onClick={handleSaveNextDate}>保存</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">下次复诊日期</label>
+            <input
+              type="date"
+              value={editingNextDate}
+              onChange={(e) => setEditingNextDate(e.target.value)}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20"
+            />
+          </div>
+        </div>
       </Modal>
     </div>
   )

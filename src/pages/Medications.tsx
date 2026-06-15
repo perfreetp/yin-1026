@@ -25,7 +25,7 @@ import { Card } from '@/components/ui/Card';
 
 const quickLinks = [
   { label: '问诊室', icon: Stethoscope, path: 'consultation' },
-  { label: '病历', icon: FileText, path: 'medical-records' },
+  { label: '病历', icon: FileText, path: 'records' },
   { label: '检查资料', icon: ClipboardList, path: 'examinations' },
   { label: '随访计划', icon: Calendar, path: 'followup' },
 ];
@@ -150,7 +150,7 @@ export default function Medications() {
             return (
               <button
                 key={link.path}
-                onClick={() => navigate(`/patient/${patientId}/${link.path}`)}
+                onClick={() => navigate(`/${link.path}/${patientId}`)}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors mb-0.5 text-gray-600 hover:bg-gray-50"
               >
                 <Icon className="h-4 w-4" />

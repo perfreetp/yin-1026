@@ -646,6 +646,17 @@ export const medications: Medication[] = [
     prescribedBy: 'doc-001',
   },
   {
+    id: 'med-011-1',
+    patientId: 'pat-005',
+    name: '阿司匹林肠溶片',
+    dosage: '100mg',
+    frequency: '每日一次',
+    startDate: '2022-03-01',
+    endDate: '',
+    status: 'active',
+    prescribedBy: 'doc-001',
+  },
+  {
     id: 'med-012',
     patientId: 'pat-005',
     name: '硝苯地平控释片',

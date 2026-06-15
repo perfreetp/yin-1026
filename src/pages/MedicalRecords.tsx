@@ -11,7 +11,7 @@ import { Card } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
 
 const quickLinks = [
-  { label: '问诊室', icon: Stethoscope, path: '/consultations' },
+  { label: '问诊室', icon: Stethoscope, path: '/consultation' },
   { label: '检查资料', icon: ClipboardList, path: '/examinations' },
   { label: '用药', icon: Pill, path: '/medications' },
   { label: '随访计划', icon: CalendarCheck, path: '/followup' },

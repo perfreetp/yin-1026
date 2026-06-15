@@ -56,7 +56,7 @@ export function PatientCard({ patient, abnormalCount, lastFollowupDate, onClick 
           <AlertTriangle className={cn("h-4 w-4", abnormalCount > 0 ? "text-red-500" : "text-green-500")} />
           <span>{abnormalCount > 0 ? `${abnormalCount}项异常` : "正常"}</span>
         </div>
-        <span className="text-xs text-gray-400">最近随访: {lastFollowupDate}</span>
+        <span className="text-xs text-gray-400">下次随访: {lastFollowupDate}</span>
       </div>
     </div>
   );

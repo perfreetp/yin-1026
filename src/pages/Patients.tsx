@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Plus, AlertTriangle, Users } from 'lucide-react'
 import { usePatientStore } from '@/stores/patientStore'
+import { useFollowupStore } from '@/stores/followupStore'
 import { PatientCard } from '@/components/shared/PatientCard'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -81,11 +82,14 @@ export default function Patients() {
     setFormTags([])
   }
 
-  const getLastFollowupDate = (patientId: string) => {
-    const plans = usePatientStore.getState().referrals
-    const patientReferrals = plans.filter((r) => r.patientId === patientId)
-    if (patientReferrals.length > 0) {
-      return formatDate(patientReferrals[0].createdAt)
+  const getNextFollowupDate = (patientId: string) => {
+    const { plans } = useFollowupStore.getState()
+    const patientPlans = plans.filter((p) => p.patientId === patientId && p.status === 'active')
+    if (patientPlans.length > 0) {
+      const nextDates = patientPlans
+        .map((p) => new Date(p.nextDate).getTime())
+        .sort((a, b) => a - b)
+      return formatDate(new Date(nextDates[0]).toISOString())
     }
     return '暂无'
   }
@@ -148,7 +152,7 @@ export default function Patients() {
                 key={patient.id}
                 patient={patient}
                 abnormalCount={getAbnormalCount(patient.id)}
-                lastFollowupDate={getLastFollowupDate(patient.id)}
+                lastFollowupDate={getNextFollowupDate(patient.id)}
                 onClick={() => navigate(`/consultation/${patient.id}`)}
               />
             ))}

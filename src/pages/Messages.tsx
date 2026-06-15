@@ -11,6 +11,7 @@ import {
   Mail,
 } from 'lucide-react'
 import { useNotificationStore } from '@/stores/notificationStore'
+import { useConsultationStore } from '@/stores/consultationStore'
 import { formatRelativeTime, formatDateTime } from '@/utils/date'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -68,6 +69,7 @@ const ratingTags = ['态度好', '专业', '耐心', '响应及时', '建议有�
 
 export default function Messages() {
   const { notifications, feeRecords, markAsRead, markAllAsRead, confirmFee, addRating } = useNotificationStore()
+  const consultations = useConsultationStore((s) => s.consultations)
   const [activeTab, setActiveTab] = useState<TabKey>('all')
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [ratingForm, setRatingForm] = useState({ rating: 0, tags: [] as string[], comment: '' })
@@ -336,9 +338,15 @@ export default function Messages() {
 
               {selectedMessage.type === 'consultation' && selectedMessage.relatedId && (
                 <div className="mt-4">
-                  <Link to={`/consultation/${selectedMessage.relatedId}`}>
-                    <Button size="sm">进入问诊室</Button>
-                  </Link>
+                  {(() => {
+                    const consultation = consultations.find((c) => c.id === selectedMessage.relatedId)
+                    const targetPatientId = consultation?.patientId || selectedMessage.relatedId
+                    return (
+                      <Link to={`/consultation/${targetPatientId}`}>
+                        <Button size="sm">进入问诊室</Button>
+                      </Link>
+                    )
+                  })()}
                 </div>
               )}
             </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   Video,
@@ -14,6 +14,7 @@ import {
   Pill,
   Calendar,
   ArrowRightLeft,
+  CheckCircle,
 } from 'lucide-react'
 import { usePatient } from '@/hooks/usePatient'
 import { useConsultationStore } from '@/stores/consultationStore'
@@ -24,7 +25,7 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { AbnormalIndicator } from '@/components/shared/AbnormalIndicator'
 import { cn } from '@/lib/utils'
-import type { PrescriptionItem } from '@/types'
+import type { PrescriptionItem, Referral } from '@/types'
 
 function getAge(birthDate: string): number {
   const today = new Date()
@@ -46,8 +47,8 @@ export default function Consultation() {
   const { patientId } = useParams<{ patientId: string }>()
   const navigate = useNavigate()
   const { patient, indicators, referrals } = usePatient(patientId || '')
-  const { messages, consultations, addPrescription, sendMessage } = useConsultationStore()
-  const doctors = usePatientStore((s) => s.doctors)
+  const { messages, consultations, addPrescription, sendMessage, startConsultation, endConsultation } = useConsultationStore()
+  const { doctors, addReferral } = usePatientStore()
 
   const [activeTab, setActiveTab] = useState<'video' | 'text'>('video')
   const [showPrescription, setShowPrescription] = useState(true)
@@ -58,6 +59,8 @@ export default function Consultation() {
   const [referralDoctorId, setReferralDoctorId] = useState('')
   const [referralReason, setReferralReason] = useState('')
   const [newMessage, setNewMessage] = useState('')
+  const [showReferralSuccess, setShowReferralSuccess] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   if (!patient) {
     return (
@@ -67,9 +70,21 @@ export default function Consultation() {
     )
   }
 
-  const activeConsultation = consultations.find(
+  const currentDoctorId = 'doc-001'
+
+  let activeConsultation = consultations.find(
     (c) => c.patientId === patientId && c.status === 'active'
   )
+
+  if (!activeConsultation) {
+    const waitingConsultation = consultations.find(
+      (c) => c.patientId === patientId && c.status === 'waiting'
+    )
+    if (waitingConsultation) {
+      activeConsultation = waitingConsultation
+    }
+  }
+
   const consultationMessages = activeConsultation
     ? messages.filter((m) => m.consultationId === activeConsultation.id)
     : []
@@ -81,6 +96,24 @@ export default function Consultation() {
   const specialistDoctors = doctors.filter((d) =>
     d.department.includes('内科') || d.department.includes('外科') || d.department.includes('科')
   )
+
+  const ensureActiveConsultation = () => {
+    if (!activeConsultation) {
+      startConsultation(patientId || '', currentDoctorId, activeTab)
+      const newCons = useConsultationStore.getState().consultations.find(
+        (c) => c.patientId === patientId && c.status === 'active'
+      )
+      if (newCons) {
+        activeConsultation = newCons
+      }
+    } else if (activeConsultation.status === 'waiting') {
+      useConsultationStore.setState((state) => ({
+        consultations: state.consultations.map((c) =>
+          c.id === activeConsultation!.id ? { ...c, status: 'active' } : c
+        ),
+      }))
+    }
+  }
 
   const handleAddPrescriptionItem = () => {
     setPrescriptionItems([...prescriptionItems, { medicationName: '', dosage: '', usage: '', duration: '' }])
@@ -97,14 +130,19 @@ export default function Consultation() {
   }
 
   const handleSavePrescription = () => {
-    if (!activeConsultation || !patientId) return
+    ensureActiveConsultation()
+    const state = useConsultationStore.getState()
+    const consultation = state.consultations.find(
+      (c) => c.patientId === patientId && (c.status === 'active' || c.status === 'waiting')
+    )
+    if (!consultation || !patientId) return
     const validItems = prescriptionItems.filter((item) => item.medicationName)
     if (validItems.length === 0) return
     addPrescription({
       id: `presc-${Date.now()}`,
       patientId,
-      doctorId: activeConsultation.doctorId,
-      consultationId: activeConsultation.id,
+      doctorId: currentDoctorId,
+      consultationId: consultation.id,
       items: validItems,
       notes: prescriptionNotes,
       createdAt: new Date().toISOString(),
@@ -113,18 +151,84 @@ export default function Consultation() {
     setPrescriptionNotes('')
   }
 
+  const handleEndConsultation = () => {
+    if (!activeConsultation) return
+    endConsultation(activeConsultation.id)
+  }
+
   const handleSendMessage = () => {
-    if (!newMessage.trim() || !activeConsultation) return
+    if (!newMessage.trim()) return
+    ensureActiveConsultation()
+    const state = useConsultationStore.getState()
+    const consultation = state.consultations.find(
+      (c) => c.patientId === patientId && (c.status === 'active' || c.status === 'waiting')
+    )
+    if (!consultation) return
     sendMessage({
       id: `msg-${Date.now()}`,
-      consultationId: activeConsultation.id,
-      senderId: activeConsultation.doctorId,
+      consultationId: consultation.id,
+      senderId: currentDoctorId,
       senderRole: 'doctor',
       content: newMessage.trim(),
       type: 'text',
       createdAt: new Date().toISOString(),
     })
     setNewMessage('')
+  }
+
+  const handleImageUploadClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    ensureActiveConsultation()
+    const state = useConsultationStore.getState()
+    const consultation = state.consultations.find(
+      (c) => c.patientId === patientId && (c.status === 'active' || c.status === 'waiting')
+    )
+    if (!consultation) return
+
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const imageUrl = event.target?.result as string
+        sendMessage({
+          id: `msg-${Date.now()}-${Math.random()}`,
+          consultationId: consultation.id,
+          senderId: currentDoctorId,
+          senderRole: 'doctor',
+          content: imageUrl,
+          type: 'image',
+          createdAt: new Date().toISOString(),
+        })
+      }
+      reader.readAsDataURL(file)
+    })
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleSubmitReferral = () => {
+    if (!referralDoctorId || !referralReason.trim() || !patientId) return
+    const newReferral: Referral = {
+      id: `ref-${Date.now()}`,
+      patientId,
+      fromDoctorId: currentDoctorId,
+      toDoctorId: referralDoctorId,
+      reason: referralReason,
+      status: 'pending',
+      specialistOpinion: '',
+      createdAt: new Date().toISOString(),
+    }
+    addReferral(newReferral)
+    setReferralDoctorId('')
+    setReferralReason('')
+    setShowReferralSuccess(true)
+    setTimeout(() => setShowReferralSuccess(false), 3000)
   }
 
   const navLinks = [
@@ -254,7 +358,15 @@ export default function Consultation() {
                           : "bg-gray-100 text-gray-900"
                       )}
                     >
-                      {msg.content}
+                      {msg.type === 'image' ? (
+                        <img
+                          src={msg.content}
+                          alt="上传图片"
+                          className="max-w-full max-h-48 rounded-lg object-contain"
+                        />
+                      ) : (
+                        msg.content
+                      )}
                     </div>
                     <span className="text-xs text-gray-300">
                       {new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
@@ -263,7 +375,18 @@ export default function Consultation() {
                 ))}
               </div>
               <div className="flex items-center gap-2 border-t border-gray-200 pt-3">
-                <button className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImageChange}
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                />
+                <button
+                  onClick={handleImageUploadClick}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                >
                   <ImagePlus className="h-5 w-5" />
                 </button>
                 <input
@@ -283,7 +406,7 @@ export default function Consultation() {
         </div>
 
         <div className="flex items-center gap-3 border-t border-gray-200 px-4 py-3">
-          <Button variant="danger" size="sm">结束问诊</Button>
+          <Button variant="danger" size="sm" onClick={handleEndConsultation}>结束问诊</Button>
           <Button variant="primary" size="sm" onClick={() => setShowPrescription(true)}>填写处方</Button>
         </div>
       </div>
@@ -387,6 +510,12 @@ export default function Consultation() {
             </div>
           ) : (
             <div className="flex flex-col gap-4">
+              {showReferralSuccess && (
+                <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 p-3">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                  <span className="text-sm text-green-700">转诊申请已提交，等待专科医生处理</span>
+                </div>
+              )}
               <Select
                 label="转诊专科医生"
                 value={referralDoctorId}
@@ -407,7 +536,7 @@ export default function Consultation() {
                   className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#0A6EBD] focus:outline-none focus:ring-2 focus:ring-[#0A6EBD]/20 resize-none"
                 />
               </div>
-              <Button variant="primary" size="md" className="w-full">
+              <Button variant="primary" size="md" className="w-full" onClick={handleSubmitReferral}>
                 提交转诊
               </Button>
             </div>
